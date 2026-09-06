@@ -24,3 +24,8 @@ htmlcov/
 .vscode/
 .DS_Store
 node_modules/
+
+# fichier imp/exp
+copyToHome.sh
+getFromHome.sh
+opencode-session.json
