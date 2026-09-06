@@ -220,12 +220,16 @@ socket.emit("cannon_fire", {
 - Calcule `hit_probability(kind, target_type, dist_m, range_m)` (cannon vs boat 1→0.3 dégressif, DCA vs drone 0.9→0.3, DCA vs boat 1.0, cannon vs drone refusé).
 - Calcule `endX/Y/Z` (avec offset miss aléatoire si pas hit).
 - Broadcast `cannon_fire { shooterId, kind, startX/Y/Z, endX/Y/Z, arcHeight, duration, impact }`.
-- Si hit : `socketio.start_background_task` qui dort `flight_seconds` puis :
+- Pour un tir humain réussi : `socketio.start_background_task` attend
+  `flight_seconds` puis :
   - boat → `cannon_hit` + `apply_player_damage` ou `bot_apply_damage`.
   - drone → `kill_server_drone(reason="shot")`.
   - beacon → `sonar_beacon_destroyed`.
 
-**Bots tirent via** `bot_fire_cannon` et `bot_fire_aa` qui font la même chose.
+**Bots tirent via** `bot_fire_cannon` et `bot_fire_aa`. Le canon consomme ses
+munitions immédiatement puis place les impacts réussis dans la file déterministe
+de `Sim`; `update_pending_cannon_hits()` applique les dégâts au tick prévu et
+émet `CannonHit`. La DCA conserve son traitement Socket.IO différé.
 
 ### Grenades (`grenade_fire`)
 
@@ -736,9 +740,13 @@ Les `*_count(s)` incluent désormais un champ `bsid` (`null` pour le bateau prim
 | serveur | `DRONE_RECOVERY_DISTANCE_U` | 0.5 | u |
 ## Entraînement RL des sous-marins
 
-Le pipeline `aisub_v13` entraîne un sous-marin en duel 1v1 sans serveur Flask.
+Le pipeline `aisub_v14` entraîne un sous-marin en duel 1v1 sans serveur Flask.
 Il réutilise directement `simulation.Sim` grâce à `headless.py` : les règles de
 torpilles, dégâts, sonar et leurres sont donc celles du jeu autoritaire.
+Les adversaires BT sont configurés par coque, IA et poids. La politique reste
+toujours un sous-marin ; elle affronte à parts égales `submarine/autosub` et
+`destroyer/autodest`. Les impacts du canon des destroyers sont résolus selon
+l'horloge de simulation et consomment les munitions comme sur le serveur live.
 
 Un bot RL porte `external_control=true`. Dans ce mode, `Sim.update_bot()`
 n'exécute aucun Behavior Tree et aucun tir réactif. La politique fixe seulement
@@ -757,35 +765,39 @@ tirée que sur un contact datant de moins d'une seconde.
 ### Phase 1 : adversaire algorithmique
 
 ```bash
-venv/bin/python train_ai.py --config configs/aisub_v13.json \
-  --stage scripted --run-name aisub_v13_scripted
+venv/bin/python train_ai.py --config configs/aisub_v14.json \
+  --stage scripted --run-name aisub_v14_scripted \
+  --resume models_rl/aisub_v13_scripted/best/best_model.zip
 ```
 
-Les huit environnements affrontent un mélange de `autosub` et `default`. Une évaluation séparée se déroule
-sur `world_testCombats.json` et conserve le meilleur modèle dans
-`models_rl/aisub_v13_scripted/best/best_model.zip`.
+Les huit environnements affrontent un mélange équilibré de sous-marins
+`autosub` et de destroyers `autodest`. Une évaluation agrégée se déroule sur
+`world_testCombats.json` et conserve le meilleur modèle dans
+`models_rl/aisub_v14_scripted/best/best_model.zip`.
 
 ### Phase 2 : ligue self-play
 
 ```bash
-venv/bin/python train_ai.py --config configs/aisub_v13.json \
-  --stage selfplay --run-name aisub_v13_selfplay \
-  --resume models_rl/aisub_v13_scripted/best/best_model.zip
+venv/bin/python train_ai.py --config configs/aisub_v14.json \
+  --stage selfplay --run-name aisub_v14_selfplay \
+  --resume models_rl/aisub_v14_scripted/best/best_model.zip
 ```
 
 Le checkpoint initial et les snapshots périodiques alimentent le répertoire
-`league/`. À chaque épisode, l'adversaire est choisi entre `autosub` et une
-politique historique. Les deux politiques décident à la même fréquence.
+`league/`. À chaque épisode, l'adversaire est choisi entre une politique
+historique sous-marine et le mélange BT sous-marin/destroyer. Les politiques
+RL décident à la même fréquence.
 
 ### Évaluation et jeu live
 
 ```bash
 venv/bin/python evaluate_ai.py \
-  models_rl/aisub_v13_selfplay/best/best_model.zip \
-  --maps combats,testCombats --opponents autosub,default --episodes 100
+  models_rl/aisub_v14_selfplay/best/best_model.zip \
+  --maps combats,testCombats \
+  --opponents submarine/autosub,destroyer/autodest --episodes 100
 ```
 
-Dans la console du navigateur, `spawnRlBot("aisub_v13_selfplay")` charge d'abord `best/best_model.zip`,
+Dans la console du navigateur, `spawnRlBot("aisub_v14_selfplay")` charge d'abord `best/best_model.zip`,
 puis `policy_final.zip` si aucun meilleur modèle n'existe. La forme des espaces
 d'observation et d'action est validée au chargement ; un échec replie le bot sur
 `autosub` et écrit la cause dans le journal serveur.

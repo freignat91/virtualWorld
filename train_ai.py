@@ -79,10 +79,11 @@ def make_env(config: Dict[str, Any], *, seed: int, stage: str,
     eval_cfg = config["evaluation"]
 
     def factory() -> SubmarineDuelEnv:
+        opponent_cfg = eval_cfg if evaluation else env_cfg
         return SubmarineDuelEnv(
             map_name=eval_cfg["map_name"] if evaluation else env_cfg["map_name"],
-            opponent_ais=(eval_cfg.get("opponent_ais", ["autosub"])
-                          if evaluation else env_cfg["opponent_ais"]),
+            opponents=opponent_cfg.get("opponents"),
+            opponent_ais=opponent_cfg.get("opponent_ais"),
             opponent_pool_dir=None if evaluation or stage == "scripted" else str(league_dir),
             self_play_probability=0.0 if evaluation or stage == "scripted" else float(
                 config["league"]["self_play_probability"]),
@@ -121,7 +122,7 @@ def configure_loaded_model(model: RecurrentPPO, config: Dict[str, Any]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default="configs/aisub_v13.json")
+    parser.add_argument("--config", default="configs/aisub_v14.json")
     parser.add_argument("--stage", choices=("scripted", "selfplay"), default="scripted")
     parser.add_argument("--run-name")
     parser.add_argument("--resume", help="checkpoint servant de point de départ")

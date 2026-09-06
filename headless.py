@@ -242,6 +242,9 @@ class HeadlessRunner:
         depth_m = min(30.0, max_depth_m) if boat_type == "submarine" else float(boat.get("flotation", 2))
         spawn_y = -depth_m / simulation.UNIT_METERS_BOT
         selected_ai = None if external_control else (ai or boat.get("ai") or "default")
+        ai_tree = bot_ai.load_ai(selected_ai) if selected_ai else None
+        if not external_control and ai_tree is None:
+            raise ValueError(f"Behavior Tree introuvable ou invalide: {selected_ai}")
         bot = {
             "sid": sid, "id": player_id, "is_bot": True,
             "boatType": boat_type, "boat": boat, "team_id": team_id,
@@ -257,7 +260,7 @@ class HeadlessRunner:
             "next_cannon_at": 0.0, "next_aa_at": 0.0,
             "last_detected_ids": set(), "last_emit": 0.0,
             "waypoint": None, "integrity": 100.0,
-            "ai_name": selected_ai, "ai_tree": bot_ai.load_ai(selected_ai),
+            "ai_name": selected_ai, "ai_tree": ai_tree,
             "external_control": external_control,
             "control_target_rudder": 0.0,
             "control_target_speed_ratio": 0.0,

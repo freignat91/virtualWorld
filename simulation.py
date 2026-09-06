@@ -281,6 +281,9 @@ class Sim:
         # Buffer d'events.
         self._events: List[ev_mod.Event] = []
 
+        # Impacts canon différés selon l'horloge de simulation.
+        self._pending_cannon_hits: List[Dict[str, Any]] = []
+
         # Hooks legacy.
         self._legacy = None
 
@@ -2349,6 +2352,8 @@ class Sim:
         detected: List[Dict[str, Any]] = []
         # Joueurs humains.
         for sid, p in self.players.items():
+            if p.get("is_bot"):
+                continue
             if same_team(bot, p):
                 continue
             if p.get("sunk"):
@@ -2599,12 +2604,19 @@ class Sim:
         return True
 
     def bot_fire_cannon(self, bot: Dict[str, Any], target_player: Dict[str, Any]) -> bool:
-        """Tir canon arc d'un bot. Émet CannonFire ; CannonHit + dégâts différés via socketio.start_background_task."""
+        """Tir canon d'un bot avec impact différé par l'horloge de simulation."""
         import random as _random
         legacy = self._legacy
         boat = bot.get("boat") or {}
         cannon = boat.get("cannon")
         if not cannon:
+            return False
+        sid = bot["sid"]
+        ammo = legacy.cannon_ammo.get(sid)
+        if ammo is None:
+            legacy.init_cannon_ammo_for_sid(sid)
+            ammo = legacy.cannon_ammo.get(sid) or {}
+        if ammo.get("cannon", 0) <= 0:
             return False
         range_m = cannon.get("range", 8000)
         bx, by, bz = bot["position"]["x"], bot["position"]["y"], bot["position"]["z"]
@@ -2613,6 +2625,8 @@ class Sim:
         dist_m = math.hypot(px - bx, pz - bz) * UNIT_METERS_BOT
         if dist_m > range_m:
             return False
+        ammo["cannon"] = max(0, ammo.get("cannon", 0) - 1)
+        legacy.emit_cannon_counts(sid)
         max_prob, min_prob = 1.0, 0.3
         half_range = range_m / 2
         if dist_m <= half_range:
@@ -2641,26 +2655,39 @@ class Sim:
             impact=True,
         ))
         if hit:
-            damage = cannon.get("damage", 8)
-            target_id = target_player["id"]
-            attacker_id = bot["id"]
-            socketio = getattr(legacy, "socketio", None)
-
-            def _delayed_hit():
-                if socketio is not None:
-                    socketio.sleep(flight_s)
-                socketio.emit("cannon_hit", {
-                    "shooterId": attacker_id,
-                    "targetId": target_id,
-                    "damage": damage,
-                })
-                for sid_h, p_h in self.players.items():
-                    if p_h.get("id") == target_id and not p_h.get("is_bot"):
-                        self.apply_player_damage(sid_h, p_h, damage, attacker_id)
-                        break
-            if socketio is not None:
-                socketio.start_background_task(_delayed_hit)
+            self._pending_cannon_hits.append({
+                "at": self.now() + flight_s,
+                "shooter_id": bot["id"],
+                "target_id": target_player["id"],
+                "damage": float(cannon.get("damage", 8)),
+            })
         return True
+
+    def update_pending_cannon_hits(self) -> None:
+        """Résout les obus arrivés à destination sans dépendre de Socket.IO."""
+        now = self.now()
+        pending = []
+        for hit in self._pending_cannon_hits:
+            if hit["at"] > now:
+                pending.append(hit)
+                continue
+            target_id = hit["target_id"]
+            damage = hit["damage"]
+            attacker_id = hit["shooter_id"]
+            self.emit(ev_mod.CannonHit(
+                shooter_id=attacker_id,
+                target_id=target_id,
+                damage=damage,
+            ))
+            sid, target_bot = self.find_bot_by_player_id(target_id)
+            if target_bot is not None:
+                self.bot_apply_damage(sid, target_bot, damage, attacker_id)
+                continue
+            for human_sid, player in self.players.items():
+                if player.get("id") == target_id and not player.get("is_bot"):
+                    self.apply_player_damage(human_sid, player, damage, attacker_id)
+                    break
+        self._pending_cannon_hits = pending
 
     def bot_fire_aa(self, bot: Dict[str, Any], drone: Dict[str, Any]) -> bool:
         """Tir DCA bot vers un drone. Émet CannonFire ; kill différé via socketio."""
@@ -3145,6 +3172,7 @@ class Sim:
             world_data = self.world_data
         if not world_data:
             return
+        self.update_pending_cannon_hits()
         self.update_server_torpedoes(dt, world_data)
         self.update_server_drones(dt, world_data)
         self.update_server_grenades(dt, world_data)
@@ -3224,6 +3252,7 @@ class Sim:
         self.lures.clear()
         self._active_wire.clear()
         self._events.clear()
+        self._pending_cannon_hits.clear()
         self._danger_zones_cache = {"world_id": None, "zones": []}
         self.t = self.now()
 

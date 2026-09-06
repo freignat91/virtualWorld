@@ -1,0 +1,66 @@
+{
+  "name": "aisub_v14",
+  "description": "Sous-marin contre un mélange explicite de sous-marins et destroyers, puis ligue self-play.",
+  "model": {
+    "net_arch": [256, 256],
+    "lstm_hidden_size": 256,
+    "n_lstm_layers": 1
+  },
+  "training": {
+    "total_steps": 5000000,
+    "n_envs": 8,
+    "seed": 42,
+    "learning_rate": 0.0001,
+    "n_steps": 1024,
+    "batch_size": 256,
+    "n_epochs": 8,
+    "gamma": 0.997,
+    "gae_lambda": 0.97,
+    "ent_coef": 0.01,
+    "ent_coef_end": 0.001,
+    "clip_range": 0.2,
+    "vf_coef": 0.5,
+    "max_grad_norm": 0.5,
+    "checkpoint_every_steps": 250000
+  },
+  "env": {
+    "map_name": "combats",
+    "opponents": [
+      {"boat_type": "submarine", "ai": "autosub", "weight": 1.0},
+      {"boat_type": "destroyer", "ai": "autodest", "weight": 1.0}
+    ],
+    "frame_skip": 5,
+    "max_physics_steps": 6000,
+    "spawn_min_m": 600.0,
+    "spawn_max_m": 2000.0,
+    "curriculum_start_min_m": 400.0,
+    "curriculum_start_max_m": 700.0,
+    "curriculum_fraction": 0.3
+  },
+  "reward": {
+    "win": 10.0,
+    "loss": -10.0,
+    "damage_dealt": 0.02,
+    "damage_taken": -0.02,
+    "decision_cost": -0.001,
+    "weapon_fired": -0.02,
+    "weapon_invalid": -0.005,
+    "lure_dropped": -0.01,
+    "lure_invalid": -0.002,
+    "new_contact": 0.01
+  },
+  "evaluation": {
+    "map_name": "testCombats",
+    "opponents": [
+      {"boat_type": "submarine", "ai": "autosub", "weight": 1.0},
+      {"boat_type": "destroyer", "ai": "autodest", "weight": 1.0}
+    ],
+    "every_steps": 100000,
+    "episodes": 40
+  },
+  "league": {
+    "self_play_probability": 0.7,
+    "snapshot_every_steps": 250000,
+    "keep_last": 12
+  }
+}

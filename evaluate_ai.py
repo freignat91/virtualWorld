@@ -12,9 +12,13 @@ from sb3_contrib import RecurrentPPO
 from rl_env import SubmarineDuelEnv
 
 
-def evaluate(model: RecurrentPPO, map_name: str, opponent: str,
+def evaluate(model: RecurrentPPO, map_name: str, boat_type: str, opponent_ai: str,
              episodes: int, seed: int) -> dict:
-    env = SubmarineDuelEnv(map_name=map_name, opponent_ai=opponent, seed=seed)
+    env = SubmarineDuelEnv(
+        map_name=map_name,
+        opponents=[{"boat_type": boat_type, "ai": opponent_ai, "weight": 1.0}],
+        seed=seed,
+    )
     outcomes: Counter[str] = Counter()
     totals: Counter[str] = Counter()
     rewards = []
@@ -41,7 +45,8 @@ def evaluate(model: RecurrentPPO, map_name: str, opponent: str,
         env.close()
     return {
         "map": map_name,
-        "opponent": opponent,
+        "opponent_boat_type": boat_type,
+        "opponent_ai": opponent_ai,
         "episodes": episodes,
         "wins": outcomes["win"],
         "losses": outcomes["loss"],
@@ -60,7 +65,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("model")
     parser.add_argument("--maps", default="combats,testCombats")
-    parser.add_argument("--opponents", default="autosub,default")
+    parser.add_argument(
+        "--opponents", default="submarine/autosub,destroyer/autodest",
+        help="paires boat_type/ai séparées par des virgules")
     parser.add_argument("--episodes", type=int, default=100)
     parser.add_argument("--seed", type=int, default=10000)
     parser.add_argument("--device", default="auto")
@@ -69,7 +76,12 @@ def main() -> None:
     results = []
     for map_name in filter(None, (value.strip() for value in args.maps.split(","))):
         for opponent in filter(None, (value.strip() for value in args.opponents.split(","))):
-            results.append(evaluate(model, map_name, opponent, args.episodes, args.seed))
+            if "/" in opponent:
+                boat_type, opponent_ai = opponent.split("/", 1)
+            else:
+                boat_type, opponent_ai = "submarine", opponent
+            results.append(evaluate(
+                model, map_name, boat_type, opponent_ai, args.episodes, args.seed))
     print(json.dumps(results, indent=2, ensure_ascii=False))
 
 

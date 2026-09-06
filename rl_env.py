@@ -42,6 +42,7 @@ class SubmarineDuelEnv(gym.Env):
         map_name: str = "combats",
         opponent_ai: str = "autosub",
         opponent_ais: Optional[Sequence[str]] = None,
+        opponents: Optional[Sequence[Dict[str, Any]]] = None,
         opponent_pool_dir: Optional[str] = None,
         self_play_probability: float = 0.0,
         max_physics_steps: int = 6000,
@@ -56,9 +57,29 @@ class SubmarineDuelEnv(gym.Env):
     ) -> None:
         super().__init__()
         self.map_name = map_name
-        self.opponent_ais = tuple(opponent_ais or (opponent_ai,))
-        if not self.opponent_ais or any(not name for name in self.opponent_ais):
+        if opponents is None:
+            names = tuple(opponent_ais or (opponent_ai,))
+            opponents = tuple(
+                {"boat_type": "submarine", "ai": name, "weight": 1.0}
+                for name in names)
+        normalized_opponents = []
+        for opponent in opponents:
+            if not isinstance(opponent, dict):
+                raise ValueError("chaque adversaire doit être un objet")
+            boat_type = opponent.get("boat_type")
+            ai = opponent.get("ai")
+            weight = float(opponent.get("weight", 1.0))
+            if boat_type not in {"submarine", "destroyer"}:
+                raise ValueError(f"type d'adversaire inconnu: {boat_type}")
+            if not isinstance(ai, str) or not ai:
+                raise ValueError("Behavior Tree adversaire absent")
+            if not math.isfinite(weight) or weight <= 0.0:
+                raise ValueError(f"poids adversaire invalide: {weight}")
+            normalized_opponents.append({"boat_type": boat_type, "ai": ai, "weight": weight})
+        if not normalized_opponents:
             raise ValueError("au moins un adversaire BT est requis")
+        self.opponents = tuple(normalized_opponents)
+        self._opponent_weights = tuple(item["weight"] for item in self.opponents)
         self.opponent_pool_dir = Path(opponent_pool_dir) if opponent_pool_dir else None
         self.self_play_probability = max(0.0, min(1.0, self_play_probability))
         self.max_physics_steps = max(1, int(max_physics_steps))
@@ -93,6 +114,7 @@ class SubmarineDuelEnv(gym.Env):
         self._previous_opponent_hp = 100.0
         self._had_contact = False
         self._stats: Dict[str, int] = {}
+        self._opponent_info: Dict[str, Any] = {}
 
     def _spawn_range(self) -> Tuple[float, float]:
         if self.curriculum_decisions <= 0:
@@ -171,24 +193,39 @@ class SubmarineDuelEnv(gym.Env):
             path = self.runner.random.choice(pool)
             self._opponent_model = self._load_opponent(path)
             opponent_external = True
+            opponent_boat_type = "submarine"
             opponent_ai = None
-            opponent_label = path.name
+            self._opponent_info = {
+                "opponent": f"policy:submarine/{path.name}",
+                "opponent_kind": "policy",
+                "opponent_boat_type": "submarine",
+                "opponent_ai": None,
+            }
         else:
             opponent_external = False
-            opponent_ai = self.runner.random.choice(self.opponent_ais)
-            opponent_label = f"bt:{opponent_ai}"
+            opponent = self.runner.random.choices(
+                self.opponents, weights=self._opponent_weights, k=1)[0]
+            opponent_boat_type = opponent["boat_type"]
+            opponent_ai = opponent["ai"]
+            self._opponent_info = {
+                "opponent": f"bt:{opponent_boat_type}/{opponent_ai}",
+                "opponent_kind": "bt",
+                "opponent_boat_type": opponent_boat_type,
+                "opponent_ai": opponent_ai,
+            }
 
         self.agent_sid = self.runner.spawn_bot(
-            external_control=True, ai=None, position=agent_pos,
+            boat_type="submarine", external_control=True, ai=None, position=agent_pos,
             rotation=self.runner.random.uniform(0.0, math.tau), team_id="agent")
         self.opponent_sid = self.runner.spawn_bot(
-            external_control=opponent_external, ai=opponent_ai, position=opponent_pos,
+            boat_type=opponent_boat_type, external_control=opponent_external,
+            ai=opponent_ai, position=opponent_pos,
             rotation=self.runner.random.uniform(0.0, math.tau), team_id="opponent")
         self._previous_agent_hp = 100.0
         self._previous_opponent_hp = 100.0
         observation = build_observation(self._agent(), self.runner.sim, self.runner.world)
         self._had_contact = bool(observation[10] > 0.5)
-        return observation, {"opponent": opponent_label}
+        return observation, dict(self._opponent_info)
 
     def _agent(self) -> Dict[str, Any]:
         if self.agent_sid is None or self.agent_sid not in self.runner.legacy.bots:
@@ -259,7 +296,7 @@ class SubmarineDuelEnv(gym.Env):
             self._stats["contacts"] += 1
         self._had_contact = has_contact
 
-        info: Dict[str, Any] = {}
+        info: Dict[str, Any] = dict(self._opponent_info)
         if terminated:
             if agent_alive and not opponent_alive:
                 reward += self.reward_cfg["win"]
