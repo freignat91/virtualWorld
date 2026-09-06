@@ -1,0 +1,11 @@
+Model Information:
+* title:	Type VII D U-boat
+* source:	https://sketchfab.com/3d-models/type-vii-d-u-boat-da8cc9fafbb7440d9b9203349302eb35
+* author:	martyn169 (https://sketchfab.com/martyn169)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Type VII D U-boat" (https://sketchfab.com/3d-models/type-vii-d-u-boat-da8cc9fafbb7440d9b9203349302eb35) by martyn169 (https://sketchfab.com/martyn169) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

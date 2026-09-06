@@ -1,0 +1,77 @@
+{
+  "name": "Autosub v2 (BT sous-marin simplifié)",
+  "description": "FSM simplifiée : COMBAT > APPROCHE > SEARCH. COMBAT gère défense (esquive+leurre+contre-attaque) et attaque à portée. APPROCHE silencieuse vers ennemi connu (attend vitesse 0 si ennemi vient à nous). SEARCH = exploration nav_graph.",
+  "tree": {
+    "type": "Sequence",
+    "name": "Tick complet",
+    "children": [
+      { "type": "Action", "name": "Sync players[]", "fn": "sync_player" },
+      { "type": "Action", "name": "Détection passive", "fn": "passive_detection" },
+      {
+        "type": "Selector",
+        "name": "FSM combat / approche / exploration",
+        "children": [
+          {
+            "type": "Sequence",
+            "name": "COMBAT (défense ou attaque)",
+            "children": [
+              { "type": "Condition", "fn": "is_submarine" },
+              { "type": "Condition", "fn": "bots_active" },
+              {
+                "type": "Selector",
+                "children": [
+                  { "type": "Condition", "fn": "combat_should_continue" },
+                  { "type": "Condition", "fn": "enemy_known_recent", "params": { "max_age_s": 30.0 } }
+                ]
+              },
+              {
+                "type": "AlwaysSuccess",
+                "child": { "type": "Action", "fn": "submerge_periscope", "params": { "hold_s": 60.0 } }
+              },
+              { "type": "Action", "fn": "combat_react", "params": { "attack_range_m": 3000.0 } }
+            ]
+          },
+          {
+            "type": "Sequence",
+            "name": "APPROCHE (ennemi connu)",
+            "children": [
+              { "type": "Condition", "fn": "is_submarine" },
+              { "type": "Condition", "fn": "bots_active" },
+              { "type": "Condition", "fn": "enemy_known_recent", "params": { "max_age_s": 30.0 } },
+              {
+                "type": "AlwaysSuccess",
+                "child": { "type": "Action", "fn": "submerge_periscope", "params": { "hold_s": 60.0 } }
+              },
+              { "type": "Action", "fn": "combat_approach", "params": { "attack_range_m": 3000.0, "noise_margin": 0.05 } }
+            ]
+          },
+          {
+            "type": "Sequence",
+            "name": "SEARCH (exploration)",
+            "children": [
+              {
+                "type": "AlwaysSuccess",
+                "child": { "type": "Action", "fn": "submerge_random", "params": { "min_depth_m": 20.0, "max_depth_m": 100.0, "hold_s": 60.0 } }
+              },
+              { "type": "Action", "fn": "navigate_island_hop", "params": { "noise_margin": 0.05 } }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "AlwaysSuccess",
+        "name": "DCA optionnelle",
+        "child": {
+          "type": "Sequence",
+          "children": [
+            { "type": "Condition", "fn": "bots_active" },
+            { "type": "Condition", "fn": "has_aa" },
+            { "type": "Condition", "fn": "aa_cooldown_ok" },
+            { "type": "Condition", "fn": "has_human_drone_in_range" },
+            { "type": "Action", "fn": "fire_aa_at_human_drone" }
+          ]
+        }
+      }
+    ]
+  }
+}

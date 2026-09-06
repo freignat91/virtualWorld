@@ -1,0 +1,58 @@
+{
+  "name": "aisub_v11",
+  "description": "RL combat sub avec nouvelle formule de bruit (plancher 100m, leurres noise=50). Repart de zéro depuis BC v4. Self-play league + leurres encouragés à courte distance + spawn rapproché.",
+
+  "model": {
+    "net_arch": [256, 256],
+    "lstm_hidden_size": 256,
+    "n_lstm_layers": 1
+  },
+
+  "training": {
+    "total_steps": 2000000,
+    "n_envs": 8,
+    "max_steps_per_episode": 6000,
+    "learning_rate": 1e-5,
+    "n_steps": 2048,
+    "batch_size": 256,
+    "n_epochs": 10,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "ent_coef": 0.02,
+    "ent_coef_end": 0.005,
+    "clip_range": 0.2,
+    "vf_coef": 0.5,
+    "max_grad_norm": 0.5
+  },
+
+  "env": {
+    "map_name": "combats",
+    "frame_skip": 5,
+    "curriculum": {
+      "ramp_steps": 2000000,
+      "spawn_min_start": 400.0,
+      "spawn_max_start": 700.0
+    },
+    "opponent_pool": [
+      "models_rl/combat_sub_v9/policy_750000_steps.zip",
+      "models_rl/combat_sub_v9/policy_1500000_steps.zip",
+      "models_rl/combat_sub_v9/policy_2250000_steps.zip"
+    ],
+    "opponent_pool_prob": 0.5
+  },
+
+  "reward": {
+    "kill_bonus": 100.0,
+    "death_penalty": -100.0,
+    "damage_dealt_per_hp": 0.2,
+    "damage_taken_per_hp": 0.05,
+    "time_penalty_per_tick": 0.001,
+    "no_los_penalty_per_tick": 0.0005,
+    "torpedo_fire_cost": 1.0,
+    "lure_drop_cost": 0.5,
+    "evade_bonus": 5.0,
+    "torp_near_miss_bonus": 5.0,
+    "torp_close_bonus": 1.0,
+    "approach_reward_per_u": 0.001
+  }
+}

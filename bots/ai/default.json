@@ -1,0 +1,76 @@
+{
+  "name": "Default (équilibré)",
+  "description": "Patrouille + détection passive + tir si cible audible. Esquive si torpille entrante (leurre + virage + plongée pour sub).",
+  "tree": {
+    "type": "Sequence",
+    "name": "Tick complet",
+    "children": [
+      {
+        "type": "AlwaysSuccess",
+        "name": "Esquive (optionnelle)",
+        "child": {
+          "type": "Sequence",
+          "name": "Esquive si menace",
+          "children": [
+            { "type": "Condition", "fn": "torpedo_incoming", "params": { "max_eta_s": 8.0 } },
+            {
+              "type": "Parallel",
+              "name": "Leurre + manoeuvre + plongée",
+              "children": [
+                { "type": "Action", "fn": "drop_lure",           "params": { "cooldown_s": 6.0 } },
+                { "type": "Action", "fn": "evade_perpendicular", "params": { "distance_m": 800, "commit_s": 6.0 } },
+                { "type": "Action", "fn": "dive_deep",           "params": { "depth_m": 80, "hold_s": 30.0 } }
+              ]
+            }
+          ]
+        }
+      },
+      { "type": "Action", "name": "Navigation",        "fn": "navigate_waypoint" },
+      { "type": "Action", "name": "Profondeur (sub)",  "fn": "submarine_depth_cycle" },
+      { "type": "Action", "name": "Sync players[]",    "fn": "sync_player" },
+      { "type": "Action", "name": "Détection passive", "fn": "passive_detection" },
+      {
+        "type": "AlwaysSuccess",
+        "name": "Combat (optionnel)",
+        "child": {
+          "type": "Selector",
+          "name": "Combat",
+          "children": [
+            {
+              "type": "Sequence",
+              "name": "Tir torpille",
+              "children": [
+                { "type": "Condition", "fn": "bots_active" },
+                { "type": "Condition", "fn": "torpedo_cooldown_ok" },
+                { "type": "Condition", "fn": "has_torpedo" },
+                { "type": "Action",    "fn": "fire_torpedo_at_audible", "params": { "range_pct": 0.7, "cooldown_s": 8.0 } }
+              ]
+            },
+            {
+              "type": "Sequence",
+              "name": "Tir canon",
+              "children": [
+                { "type": "Condition", "fn": "bots_active" },
+                { "type": "Condition", "fn": "can_fire_air" },
+                { "type": "Condition", "fn": "has_cannon" },
+                { "type": "Condition", "fn": "cannon_cooldown_ok" },
+                { "type": "Action",    "fn": "fire_cannon_at_surface_enemy", "params": { "cooldown_s": 3.0 } }
+              ]
+            },
+            {
+              "type": "Sequence",
+              "name": "Tir DCA",
+              "children": [
+                { "type": "Condition", "fn": "bots_active" },
+                { "type": "Condition", "fn": "can_fire_air" },
+                { "type": "Condition", "fn": "has_aa" },
+                { "type": "Condition", "fn": "aa_cooldown_ok" },
+                { "type": "Action",    "fn": "fire_aa_at_human_drone", "params": { "cooldown_s": 0.4, "per_drone_cooldown_s": 1.5 } }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

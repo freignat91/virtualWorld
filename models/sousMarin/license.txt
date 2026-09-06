@@ -1,0 +1,11 @@
+Model Information:
+* title:	T-22
+* source:	https://sketchfab.com/3d-models/t-22-3e6572a1dcee4ab3b252a67a60d5d6f7
+* author:	ThomasBeerens (https://sketchfab.com/ThomasBeerens)
+
+Model License:
+* license type:	CC-BY-NC-4.0 (http://creativecommons.org/licenses/by-nc/4.0/)
+* requirements:	Author must be credited. No commercial use.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "T-22" (https://sketchfab.com/3d-models/t-22-3e6572a1dcee4ab3b252a67a60d5d6f7) by ThomasBeerens (https://sketchfab.com/ThomasBeerens) licensed under CC-BY-NC-4.0 (http://creativecommons.org/licenses/by-nc/4.0/)

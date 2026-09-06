@@ -1,0 +1,115 @@
+{
+  "model": "models/sousMarin/scene.glb",
+  "speed": 30,
+  "scale": 5,
+  "noise": 1000,
+  "minNoise": 25,
+  "speedNoiseLimit": 0.4,
+  "flotation": 2,
+  "modelRotationOffset": 3.1416,
+  "radarRangeMeters": 30000,
+  "zoomCamera": {
+    "forwardMeters": 20,
+    "upMeters": 30
+  },
+  "activeSonar": {
+    "shortAngle": 10,
+    "shortAngleRange": 15000,
+    "largeAngle": 30,
+    "largeAngleRange": 8000,
+    "reveal": 15000,
+    "thermoclinePenetration": 0.1
+  },
+  "passiveSonar": {
+    "minNoise": 20
+  },
+  "sonarBeacons": {
+    "number": 20,
+    "pingIntervalSec": 30,
+    "rangeMeters": 2000,
+    "thermoclinePenetration": 0.1
+  },
+  "passiveSonarBeacons": {
+    "number": 20,
+    "minNoise": 140.6
+  },
+  "acousticLures": {
+    "number": 20,
+    "time": 2,
+    "noise": 800
+  },
+  "grenade": {
+    "number": 50,
+    "damage": 60,
+    "sinkSpeedMs": 5,
+    "effectRangeMeters": 200,
+    "rangeMeters": 15000,
+    "volleyNumber": 3
+  },
+  "automaticDrone": {
+    "number": 5,
+    "speed": 200,
+    "altitude": 500,
+    "autonomy": 200,
+    "range": 3000,
+    "safeDistance": 1800
+  },
+  "manualDrone": {
+    "number": 3,
+    "speed": 300,
+    "altitude": 300,
+    "autonomy": 150,
+    "range": 2000
+  },
+  "cannon": {
+    "ammunition": 50,
+    "range": 2000,
+    "damage": 30
+  },
+  "antiAircraft": {
+    "ammunition": 100,
+    "range": 2500,
+    "damage": 1
+  },
+  "torpedoes": {
+    "acoustic": {
+      "count": 20,
+      "speed": 50,
+      "minTurnRadius": 400,
+      "activation": 500,
+      "maxRangeMeters": 15000,
+      "damage": 80,
+      "minNoise": 2.7,
+      "radarConeDeg": 90
+    },
+    "autonomous": {
+      "count": 16,
+      "speed": 55,
+      "minTurnRadius": 500,
+      "activation": 500,
+      "maxRangeMeters": 15000,
+      "damage": 80,
+      "radarRangeMeters": 10000,
+      "radarConeDeg": 60
+    }
+  },
+  "mineSurf": {
+    "number": 40,
+    "delay": 1,
+    "damage": 60,
+    "range": 60
+  },
+  "mineBottom": {
+    "number": 40,
+    "delay": 1,
+    "damage": 60,
+    "range": 60
+  },
+  "mineSuspended": {
+    "number": 40,
+    "delay": 1,
+    "damage": 60,
+    "range": 60
+  },
+  "ai": "default"
+}

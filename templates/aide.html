@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Virtual World — Manuel du joueur</title>
+<style>
+    body {
+        font-family: system-ui, -apple-system, sans-serif;
+        background: #0d1b24;
+        color: #d8e4ee;
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 30px 24px 60px;
+        line-height: 1.55;
+    }
+    h1 { color: #66ccff; border-bottom: 2px solid #2a5a8a; padding-bottom: 8px; }
+    h2 { color: #88ddff; margin-top: 36px; border-bottom: 1px solid #2a5a8a; padding-bottom: 4px; }
+    h3 { color: #ffaa55; margin-top: 22px; }
+    code, kbd {
+        background: #1a2a36;
+        padding: 1px 6px;
+        border-radius: 3px;
+        font-family: monospace;
+        color: #ffd070;
+    }
+    kbd { border: 1px solid #444; box-shadow: inset 0 -2px 0 #222; }
+    table {
+        border-collapse: collapse;
+        margin: 12px 0;
+        width: 100%;
+    }
+    th, td {
+        border: 1px solid #2a5a8a;
+        padding: 6px 10px;
+        text-align: left;
+        vertical-align: top;
+    }
+    th { background: #1a3a5a; color: #cce8ff; }
+    tr:nth-child(even) td { background: #122230; }
+    .pill {
+        display: inline-block;
+        padding: 1px 8px;
+        border-radius: 10px;
+        font-size: 12px;
+        font-weight: bold;
+    }
+    .sub { background: #1a4a5a; color: #a0e8ff; }
+    .dest { background: #2a5a8a; color: #cce8ff; }
+    .both { background: #4a3a6a; color: #e0c8ff; }
+    .warn { color: #ff8866; font-weight: bold; }
+    .ok { color: #88ee99; }
+    a { color: #88ddff; }
+    ul { padding-left: 20px; }
+    li { margin: 3px 0; }
+    .nav { margin-top: 18px; font-size: 14px; }
+    .nav a { margin-right: 12px; }
+</style>
+</head>
+<body>
+
+<h1>Virtual World — Manuel du joueur</h1>
+
+<p>Bienvenue à bord. Vous prenez le commandement d'un <strong>destroyer</strong> ou d'un <strong>sous-marin</strong> dans une zone d'opération navale multi-joueurs. Votre mission&nbsp;: repérer les autres unités, rester discret, et neutraliser l'adversaire.</p>
+
+<div class="nav">
+    Sommaire&nbsp;:
+    <a href="#bateaux">Bateaux</a>
+    <a href="#commandes">Commandes</a>
+    <a href="#radar">Radar / Sonar</a>
+    <a href="#thermoclines">Thermoclines</a>
+    <a href="#bruit">Bruit & discrétion</a>
+    <a href="#torpilles">Torpilles</a>
+    <a href="#grenades">Grenades</a>
+    <a href="#leurres">Leurres</a>
+    <a href="#balises">Balises sonar (active / passive)</a>
+    <a href="#mines">Mines</a>
+    <a href="#canons">Canons</a>
+    <a href="#drones">Drones</a>
+    <a href="#degats">Dégâts & survie</a>
+    <a href="#bots">Bots IA</a>
+    <a href="#cheats">Cheats</a>
+</div>
+
+<h2 id="bateaux">1. Les deux types de bateau</h2>
+
+<table>
+<tr><th></th><th><span class="pill dest">Destroyer</span></th><th><span class="pill sub">Sous-marin</span></th></tr>
+<tr><td>Vitesse max</td><td>30 nds</td><td>25 nds</td></tr>
+<tr><td>Plongée</td><td>—</td><td>jusqu'à 450 m</td></tr>
+<tr><td>Bruit plein vitesse</td><td>1000 (très bruyant)</td><td>100 (discret)</td></tr>
+<tr><td>Bruit silencieux</td><td>25</td><td>6 (très discret)</td></tr>
+<tr><td>Seuil silencieux (sous lequel le bruit est minime)</td><td>40 % de la vitesse max</td><td>80 % de la vitesse max</td></tr>
+<tr><td>Seuil d'écoute (sonar passif)</td><td>20 (sourd)</td><td>4 (oreille fine)</td></tr>
+<tr><td>Torpilles</td><td>acoustique, autonome</td><td>acoustique, filoguidée, autonome</td></tr>
+<tr><td>Grenades anti-sous-marines</td><td>oui</td><td>—</td></tr>
+<tr><td>Canon principal + DCA</td><td>oui</td><td>DCA seulement</td></tr>
+<tr><td>Drones</td><td>5 auto + 3 manuels</td><td>3 auto + 2 manuels</td></tr>
+<tr><td>Leurres acoustiques</td><td>20</td><td>10</td></tr>
+<tr><td>Balises sonar actives</td><td>20</td><td>—</td></tr>
+<tr><td>Balises sonar passives</td><td>20</td><td>10</td></tr>
+<tr><td>Sonar actif étroit (10°)</td><td>8 km</td><td>8 km</td></tr>
+<tr><td>Sonar actif large (30°)</td><td>4 km</td><td>4 km</td></tr>
+<tr><td>Radar (portée tactique)</td><td>30 km</td><td>—</td></tr>
+</table>
+
+<p>Les sous-marins évoluent en <strong>3D</strong>&nbsp;: surface, périscope (~5 m), plongée jusqu'au plancher océanique. Les destroyers restent en surface mais flottent à <code>-2 m</code> (ligne de flottaison).</p>
+
+<h2 id="commandes">2. Commandes</h2>
+
+<h3>Navigation</h3>
+<ul>
+    <li><kbd>↑</kbd> / <kbd>↓</kbd>&nbsp;: avant / arrière</li>
+    <li><kbd>←</kbd> / <kbd>→</kbd>&nbsp;: barre à gauche / droite</li>
+    <li><kbd>Espace</kbd>&nbsp;: descendre (sous-marin)</li>
+    <li><kbd>X</kbd>&nbsp;: monter (sous-marin)</li>
+    <li>Bouton <kbd>P</kbd>&nbsp;: immersion périscopique automatique (~5 m)</li>
+    <li>Bouton <kbd>S</kbd>&nbsp;: faire surface</li>
+    <li>Champ "Prof. m"&nbsp;: saisir une profondeur cible et <kbd>Entrée</kbd> pour y plonger automatiquement</li>
+</ul>
+
+<h3>Caméra & interface</h3>
+<ul>
+    <li>Souris (clic gauche maintenu)&nbsp;: orbiter la caméra</li>
+    <li>Molette&nbsp;: zoom 3D</li>
+    <li><kbd>F1</kbd>&nbsp;: avancer le cycle jour / nuit (admin)</li>
+    <li>Bouton <strong>Zoom</strong>&nbsp;: vue première personne / périscope (sub orienté vers la proue, hauteur réglable dans le JSON via `zoomCamera`).</li>
+    <li>Bouton <strong>Zoom bas</strong> (destroyer uniquement)&nbsp;: vue sous-marine à 10 m sous la surface. Permet d'observer les sous-marins en plongée, les torpilles et les mines. Mêmes règles de visibilité qu'un sub immergé (fog d'eau, cheat <code>clear</code> applicable). Clic sur un sub visible pour le sélectionner comme cible.</li>
+</ul>
+
+<h3>Sélection — radar et 3D</h3>
+<ul>
+    <li><strong>Clic gauche sur le radar</strong>&nbsp;: sélectionne la cible la plus proche du clic (cercle rouge) et affiche un <strong>tooltip</strong> avec son type, son intégrité (bateaux), sa distance et sa profondeur (sous-marin) ou altitude (drone).</li>
+    <li><strong>Clic gauche dans la scène 3D</strong>&nbsp;: sélectionne directement l'objet sous le pointeur (bateau, mine, balise, drone, torpille). Équivalent au clic radar. Respecte les règles de visibilité (LOS, sonar pour les mines).</li>
+    <li>Clic-glisser sur le radar&nbsp;: déplacer la vue.</li>
+    <li>Molette sur le radar&nbsp;: zoomer (1× à <strong>100×</strong>).</li>
+</ul>
+
+<h2 id="radar">3. Radar et sonar</h2>
+
+<h3>Le radar (fenêtre verte en haut à gauche)</h3>
+<p>C'est votre interface tactique principale. Il affiche tout ce que votre bateau "sait" du monde, avec un code couleur&nbsp;:</p>
+<ul>
+    <li><span style="color:#00ff00;font-weight:bold">●</span> Vous-même (point + flèche d'orientation)</li>
+    <li><span style="color:#ffff00;font-weight:bold">●</span> Bateau de surface en <strong>ligne de vue directe</strong> (LOS) — visible par radar passif (jaune)</li>
+    <li><span style="color:#ff8800;font-weight:bold">●</span> Contact <strong>sonar</strong> (orange) — détection acoustique, persistant 10 s</li>
+    <li><span style="color:#ffd000;font-weight:bold">●</span> Balise sonar active — visible par tous les joueurs, ping toutes les 30 s</li>
+    <li><span style="color:#4488ff;font-weight:bold">●</span> Balise sonar passive — visible uniquement par les alliés, écoute en silence (tick 3 s)</li>
+    <li><span style="color:#66ccff;font-weight:bold">●</span> Drone (bleu)</li>
+    <li><span style="color:#ff3333;font-weight:bold">●</span> Torpille en vol</li>
+</ul>
+
+<h3>Sonar passif (automatique)</h3>
+<p>Chaque bateau émet un bruit qui dépend de sa vitesse. Le sonar passif d'un bateau détecte un autre bateau si le bruit perçu (atténué par la distance) dépasse son seuil d'écoute (<code>passiveSonar.minNoise</code>), <strong>et</strong> si la ligne de vue est dégagée (pas d'île entre les deux).</p>
+<p>Atténuation&nbsp;: <code>perçu = émis × (1000 / max(distance_m, 100))²</code>. Pas d'atténuation sous 100&nbsp;m, puis quadratique au-delà.</p>
+<p>Le sous-marin a une oreille beaucoup plus fine que le destroyer&nbsp;: il entend de plus loin et reste très discret en mode silencieux.</p>
+
+<p><strong>Distances de détection (avec ligne de vue dégagée)</strong>&nbsp;:</p>
+<table>
+<tr><th>Émetteur</th><th>Sub écoute</th><th>Destroyer écoute</th></tr>
+<tr><td>Destroyer plein vitesse</td><td>~16 km</td><td>~7 km</td></tr>
+<tr><td>Destroyer silencieux</td><td>~2.5 km</td><td>~1.1 km</td></tr>
+<tr><td>Sous-marin plein vitesse</td><td>~5 km</td><td>~2.2 km</td></tr>
+<tr><td>Sous-marin silencieux</td><td>~1.2 km</td><td>~550 m</td></tr>
+</table>
+<p>Un sous-marin en mode silencieux n'est détectable au sonar passif d'un destroyer qu'à <strong>très courte portée (~550 m)</strong>. Pour le trouver de plus loin, le destroyer doit utiliser son sonar actif (ping) ou poser des balises passives — au prix de se révéler à son tour.</p>
+<p>La marche arrière émet le <strong>même bruit</strong> que la marche avant (à vitesse égale) ; elle reste toutefois détectable même à très basse vitesse.</p>
+<p class="warn">Si vous modifiez <code>noise</code>, <code>minNoise</code> ou <code>passiveSonar.minNoise</code> dans les fichiers <code>boats/*.json</code>, pensez à mettre à jour ce tableau.</p>
+<p>Le contact apparaît en <strong>orange</strong> tant que la condition reste vraie.</p>
+
+<h3>Sonar actif (ping)</h3>
+<p>Bouton sonar — un ping concentrique (5 km de portée) qui révèle <strong>tous</strong> les bateaux dans son rayon, même immergés ou en ligne de vue masquée. Cooldown 3 s. <span class="warn">Attention</span>&nbsp;: le ping vous révèle vous-même aux autres.</p>
+<ul>
+    <li>Le contact reste affiché 10 s.</li>
+    <li>Cliquer sur un contact donne sa distance et sa profondeur.</li>
+    <li>Les drones ne sont <strong>pas</strong> détectables au sonar.</li>
+</ul>
+
+<h3 id="thermoclines">Thermoclines (couches thermiques)</h3>
+<p>Une <strong>thermocline</strong> est une couche d'eau, posée à une certaine profondeur sur une zone de la carte, qui <strong>perturbe la propagation du son</strong>. Elle apparaît comme un voile bleu translucide sous l'eau (et est dessinée sur le radar par son polygone bleu clair).</p>
+<p>Son effet sur la détection acoustique, quand le son doit <strong>franchir la couche</strong> (émetteur d'un côté, écouteur de l'autre)&nbsp;:</p>
+<ul>
+    <li><strong>Sonar passif &amp; torpilles acoustiques</strong>&nbsp;: le bruit perçu est <strong>réduit de 80 %</strong> à chaque couche traversée. Un sous-marin tapi <strong>sous</strong> une thermocline devient très difficile à entendre depuis la surface, et les torpilles acoustiques peinent à l'acquérir.</li>
+    <li><strong>Sonar actif (ping)</strong>&nbsp;: <strong>ne traverse pas du tout</strong> une thermocline. Un ping émis au-dessus ne révèlera rien de ce qui se trouve en dessous, et inversement.</li>
+    <li><strong>Torpille autonome</strong>&nbsp;: elle se guide au <strong>sonar actif</strong>, elle est donc elle aussi <strong>bloquée</strong> par une thermocline — elle ne « voit » pas une cible située de l'autre côté de la couche.</li>
+</ul>
+<p><strong>En pratique</strong>&nbsp;: plonger sous une thermocline est une excellente cachette pour un sous-marin — il échappe au sonar passif (très atténué), au ping actif et aux torpilles autonomes lancées depuis l'autre côté. Pour chasser une cible cachée dessous, il faut passer <strong>du même côté</strong> de la couche qu'elle (descendre sous la thermocline) avant de pinguer, d'écouter ou de tirer.</p>
+
+<h3>Visibilité par tir</h3>
+<p>Tout bateau qui ouvre le feu (<strong>torpille, grenade, canon</strong>) est révélé sur le radar des autres pendant <strong>10 s</strong>, où qu'il se trouve. Ne tirez pas si vous voulez rester invisible.</p>
+
+<h3>Visibilité des torpilles</h3>
+<p>Vos propres torpilles sont toujours visibles sur votre radar. Une <strong>torpille ennemie</strong> n'est visible que si vous avez une <strong>ligne de vue directe</strong> sur elle (les îles la masquent). C'est l'œil-mark-1 acoustique : on entend, mais on n'est plus précis sans LOS.</p>
+
+<h2 id="bruit">4. Bruit et discrétion</h2>
+
+<p>Le bruit que vous générez détermine&nbsp;:</p>
+<ul>
+    <li>votre détectabilité par sonar passif (vous + ennemis),</li>
+    <li>l'attraction des torpilles acoustiques sur vous,</li>
+    <li>la révélation automatique sur le radar des autres si vous dépassez le seuil.</li>
+</ul>
+
+<p>Formule du bruit instantané&nbsp;:</p>
+<pre style="background:#1a2a36;padding:10px;border-radius:4px;color:#ffe;">bruit = noise_base × (vitesse / vitesse_base)
+       × (1 + |barre|/barre_max)        ← <em>jusqu'à ×2 en virage maxi</em></pre>
+
+<p>Astuces de discrétion&nbsp;:</p>
+<ul>
+    <li>Naviguer <strong>sous le seuil</strong> de bruit (≤80 % pour le sub, ≤50 % pour le dest) en ligne droite.</li>
+    <li>Plonger profondément (sub)&nbsp;: rend invisible visuellement aux autres et insensible au radar de surface.</li>
+    <li>Se cacher derrière une île interrompt la ligne de vue (LOS) et donc le sonar passif.</li>
+    <li>Plonger <strong>sous une thermocline</strong>&nbsp;: réduit de 80 % le bruit perçu depuis la surface et bloque totalement les pings actifs venant d'au-dessus (voir <a href="#thermoclines">Thermoclines</a>).</li>
+</ul>
+
+<p>L'indicateur "<strong>Déplacement bruyant</strong>" apparaît en rouge en haut du radar quand vous êtes détectable.</p>
+
+<h2 id="torpilles">5. Torpilles</h2>
+
+<table>
+<tr><th>Type</th><th>Disponible</th><th>Vitesse</th><th>Portée max</th><th>Spécificité</th></tr>
+<tr><td>Acoustique</td><td><span class="pill both">Sub + Dest</span></td><td>50 nds</td><td>15-20 km</td><td>Suit la <strong>source de bruit</strong> la plus forte après activation</td></tr>
+<tr><td>Filoguidée</td><td><span class="pill sub">Sub</span></td><td>35 nds</td><td>15 km</td><td>Pilotage <strong>manuel</strong> aux flèches, une seule en vol</td></tr>
+<tr><td>Autonome</td><td><span class="pill both">Sub + Dest</span></td><td>55 nds</td><td>15-20 km</td><td><strong>Sonar actif</strong> 10 km dans un cône de 30° (LOS) ; bascule en mode acoustique sinon</td></tr>
+</table>
+
+<h3>Tirer une torpille</h3>
+<ol>
+    <li>Sélectionner une cible sur le radar (clic), OU activer le mode visée libre via le bouton aperçu (<kbd>A</kbd>).</li>
+    <li>Régler la <strong>distance d'activation</strong> (champ en mètres) — la torpille passe en mode acquisition après cette distance.</li>
+    <li>Cliquer le type de torpille.</li>
+</ol>
+
+<h3>Comportement 3D</h3>
+<ul>
+    <li>La torpille suit sa cible verticalement (un sub qui plonge ou un dest en surface) sans limite de pitch.</li>
+    <li><strong>Plafond&nbsp;:</strong> elle ne remontera jamais à moins de 2 m sous la surface.</li>
+    <li>Le yaw est limité par <code>minTurnRadius</code>&nbsp;: une torpille trop rapide n'aura pas le temps de tourner court.</li>
+    <li><strong>Évitement d'îles&nbsp;:</strong> si sa trajectoire la mène à heurter une île, elle dévie automatiquement (jusqu'à 90°) — quitte à perdre temporairement sa cible. Si aucune déviation n'est possible, elle continue tout droit et explose au choc.</li>
+</ul>
+
+<h3>Phases communes</h3>
+<p>Toute torpille passe par deux phases&nbsp;:</p>
+<ul>
+    <li><strong>Lancement</strong> (avant la distance d'activation)&nbsp;: elle file en ligne droite vers le point de visée. Aucun guidage, aucune acquisition active. C'est la phase « course de course ».</li>
+    <li><strong>Activation</strong> (après avoir parcouru la distance d'activation)&nbsp;: la torpille bascule dans son mode de guidage propre (acoustique, sonar actif ou pilotage manuel selon le type).</li>
+</ul>
+<p>Si la torpille perd sa cible une fois activée et n'en trouve aucune nouvelle, elle <strong>conserve la trajectoire vers la dernière position connue</strong> jusqu'à ré-acquérir une cible (acoustique ou sonar actif selon le type).</p>
+
+<h3>5.1 Torpille acoustique <span class="pill both">Sub + Dest</span></h3>
+<p>50 nds — portée 15-20 km. Vise <strong>au bruit</strong>.</p>
+<ul>
+    <li><strong>Lancement</strong>&nbsp;: file droit vers le point de visée.</li>
+    <li><strong>Activation</strong>&nbsp;: scanne en permanence les sources de bruit (bateaux, leurres). Le bruit perçu est atténué par la distance : <code>perçu = émis × (1000 / max(distance_m, 100))²</code>. La torpille acquiert la source dont le bruit perçu dépasse son seuil <code>minNoise</code> (défaut 2.7) <strong>et</strong> est en ligne de vue directe.</li>
+    <li>Si plusieurs sources passent le seuil, la torpille verrouille la plus intense. Elle peut <strong>changer de cible</strong> en cours de route si une autre devient plus intense (typiquement un leurre largué juste à côté).</li>
+    <li>Une cible qui passe sous le seuil (silencieuse, hors LOS) est <strong>désacquérie</strong>&nbsp;: la torpille re-scanne au tick suivant.</li>
+    <li><strong>Risque de retour</strong>&nbsp;: si le tireur est plus bruyant que la cible (virage maxi, vitesse haute), la torpille peut se rabattre sur lui — un message « torpille amie ! » apparaît localement.</li>
+</ul>
+
+<p><strong>Distances d'acquisition (seuil torpille = 2.7)</strong>&nbsp;:</p>
+<table>
+<tr><th>Cible</th><th>Acquise par la torpille</th></tr>
+<tr><td>Destroyer plein vitesse</td><td>~19 km</td></tr>
+<tr><td>Destroyer silencieux</td><td>~3 km</td></tr>
+<tr><td>Destroyer à l'arrêt</td><td>jamais</td></tr>
+<tr><td>Sous-marin plein vitesse</td><td>~6 km</td></tr>
+<tr><td>Sous-marin silencieux</td><td>~1.5 km</td></tr>
+<tr><td>Sous-marin à l'arrêt</td><td>jamais</td></tr>
+<tr><td>Leurre acoustique (noise 800)</td><td>~17 km</td></tr>
+</table>
+<p class="warn">Si vous modifiez <code>noise</code>/<code>minNoise</code> des bateaux ou <code>minNoise</code> des torpilles dans <code>boats/*.json</code>, mettez à jour ce tableau.</p>
+
+<h3>5.2 Torpille autonome <span class="pill both">Sub + Dest</span></h3>
+<p>55 nds — portée 15-20 km. Mode primaire <strong>sonar actif</strong>, mode de secours <strong>acoustique</strong>.</p>
+<ul>
+    <li><strong>Lancement</strong>&nbsp;: file droit vers le point de visée (comme une acoustique en phase de course).</li>
+    <li><strong>Activation</strong>&nbsp;: à chaque trame, le sonar actif avant scanne un <strong>cône de 30°</strong> sur 10 km en ligne de vue directe (une île masque les cibles).
+        <ul>
+            <li>Si une cible est dans le cône&nbsp;: <strong>acquisition au sonar actif</strong>, traque la plus proche.</li>
+            <li>Sinon&nbsp;: bascule en <strong>mode acoustique</strong> et suit la source de bruit la plus forte (comme une torpille acoustique).</li>
+        </ul>
+    </li>
+    <li>Le sonar actif est <strong>prioritaire</strong>&nbsp;: dès qu'une cible entre dans le cône, elle remplace une éventuelle acquisition acoustique.</li>
+    <li><strong>Sensible aux leurres acoustiques même au sonar actif</strong>&nbsp;: les leurres apparaissent comme des échos et la torpille verrouille la cible (bateau ou leurre) la plus proche dans son cône.</li>
+    <li><strong>Faiblesses</strong>&nbsp;: cible derrière une île (le sonar actif ne voit pas) ou <strong>sous une thermocline</strong> (le sonar actif ne la franchit pas), cible silencieuse hors du cône (elle n'a alors plus aucune référence), leurres largués à proximité.</li>
+</ul>
+
+<h3>5.3 Torpille filoguidée <span class="pill sub">Sub uniquement</span></h3>
+<p>35 nds — portée 15 km. <strong>Pilotage manuel</strong> du tireur.</p>
+<ul>
+    <li>Une seule filoguidée peut être en vol à la fois (le « fil » occupe la console).</li>
+    <li>Tant qu'elle vole, le sous-marin perd l'usage de ses propres commandes&nbsp;:
+        <ul>
+            <li><kbd>←</kbd>/<kbd>→</kbd>&nbsp;: virage (limité par son rayon de virage)</li>
+            <li><kbd>Espace</kbd>&nbsp;: cabrer (monter, plafond -2 m)</li>
+            <li><kbd>X</kbd>&nbsp;: piquer (descendre)</li>
+        </ul>
+        Pitch limité à ±30°.
+    </li>
+    <li>Le bouton <strong>Détruire</strong> (panneau d'armement) la fait exploser sur ordre — utile pour un tir d'effet ou avant qu'elle ne sorte de portée.</li>
+    <li>Aucune acquisition acoustique ni sonar actif&nbsp;: <strong>elle suit votre cap, point</strong>. Les leurres et cibles silencieuses n'ont aucun effet sur elle.</li>
+    <li><strong>Force</strong>&nbsp;: ignore les contre-mesures — elle ira exactement où vous la dirigez. <strong>Faiblesse</strong>&nbsp;: vous êtes immobilisé en pilotage et ne pouvez pas naviguer pendant le guidage.</li>
+</ul>
+
+<h3>Alertes (quand vous êtes la cible)</h3>
+<p>Des messages apparaissent en haut à gauche&nbsp;:</p>
+<ul>
+    <li>"Torpille N&nbsp;: ⚠ acoustique lancée" / "autonome lancée" / "filoguidée lancée" — alerte initiale dès le tir si vous étiez la cible désignée.</li>
+    <li>"Torpille N&nbsp;: ⚠ en acquisition" — une torpille active vous a verrouillé.</li>
+    <li>"Torpille N&nbsp;: acquisition perdue" — masquage, sortie de cône du sonar actif ou cible plus bruyante a pris la priorité.</li>
+    <li>"Torpille N&nbsp;: cible atteinte" — la torpille a touché un bateau (autre que vous). Disparaît après 2 s.</li>
+    <li>"Torpille N&nbsp;: torpille perdue" — la torpille a explosé sans toucher de bateau (fin de portée, île, auto-destruction). Disparaît après 2 s.</li>
+    <li>Si la torpille vous touche, le message disparaît silencieusement (l'explosion suffit).</li>
+</ul>
+
+<h3>Détonation</h3>
+<ul>
+    <li>Hit direct (≤3 m)&nbsp;: 100 % des dégâts (60 par défaut).</li>
+    <li>Détonation par proximité (≤10 m)&nbsp;: explose en splash, 50 % des dégâts.</li>
+    <li>Splash dans un rayon de 200 m, dégâts dégressifs avec la distance.</li>
+    <li>Si la torpille touche une île, elle explose.</li>
+    <li>Quand votre torpille touche une cible (direct ou proximité), un message "<strong>Cible touchée</strong>" s'affiche.</li>
+</ul>
+
+<h2 id="grenades">6. Grenades anti-sous-marines</h2>
+
+<p><span class="pill dest">Destroyer uniquement</span> — panneau Armement, ligne grenades. Champ "profondeur" en mètres (min 5 m).</p>
+
+<h3>Modes de tir</h3>
+<ul>
+    <li><strong>Grenade</strong>&nbsp;: tir unique sur la cible sélectionnée.</li>
+    <li><strong>Salve</strong>&nbsp;: plusieurs grenades en pattern spiral autour de la cible. La première tombe sur la cible, puis les suivantes à 50 m à gauche, 50 m à droite, 50 m devant, 50 m derrière, puis on recommence à 100 m, 150 m, etc. Le nombre de grenades par salve est configurable (par défaut 3). Nécessite au moins ce nombre de grenades en stock.</li>
+</ul>
+<p>Les directions gauche/droite/devant/derrière sont relatives à l'axe tireur → cible.</p>
+
+<h3>Comportement</h3>
+<ul>
+    <li>Vol balistique au-dessus de l'eau, puis descente sous l'eau (mesh blanc, plus gros).</li>
+    <li>Explose à la profondeur cible.</li>
+    <li>Dégâts splash 50 dans un rayon de 200 m (dégressif).</li>
+    <li>Détruit aussi les leurres acoustiques dans la zone d'effet.</li>
+</ul>
+<p>Les sous-marins en ligne de vue voient un message d'alerte "⚠ Grenades anti-sous-marines !" pendant 2 s.</p>
+
+<h2 id="leurres">7. Leurres acoustiques</h2>
+
+<p>Bouton "Leurre acoustique" dans le panneau d'armement.</p>
+<ul>
+    <li>Largue un leurre qui émet 800 unités de bruit pendant 2 minutes (équivalent à un destroyer à 80% de sa vitesse max).</li>
+    <li><span class="pill dest">Destroyer</span>&nbsp;: largué à la surface (à la poupe).</li>
+    <li><span class="pill sub">Sous-marin</span>&nbsp;: largué à la profondeur courante du sub.</li>
+    <li>Détourne les torpilles acoustiques en mode acquisition (la plus intense gagne&nbsp;: un leurre largué à proximité écrase le bruit du bateau).</li>
+    <li>Détourne aussi les torpilles autonomes&nbsp;: le leurre apparaît comme un écho sur leur sonar actif et la torpille verrouille la cible la plus proche dans son cône (bateau ou leurre).</li>
+    <li>Une torpille qui touche un leurre explose&nbsp;: le leurre est consommé.</li>
+    <li>Sans effet sur les filoguidées (pilotage manuel).</li>
+</ul>
+
+<h2 id="balises">8. Balises sonar</h2>
+
+<p>Deux types de balises&nbsp;: <strong>active</strong> (ping périodique, révèle tout dans son rayon) et <strong>passive</strong> (écoute en silence, signale les bateaux audibles).</p>
+
+<h3>8.1 Balise sonar active <span class="pill both">Sub + Dest</span></h3>
+
+<p>Bouton <strong>"Balise sonar active"</strong> dans le panneau d'armement.</p>
+
+<p>Largage à votre position courante. Reste sur place et émet un <strong>ping sonar</strong> automatique toutes les 30 secondes.</p>
+
+<ul>
+    <li>Point jaune doré sur le radar de <strong>tous les joueurs</strong>, y compris les sous-marins en plongée.</li>
+    <li>À chaque ping&nbsp;: rayon de <code>rangeMeters</code> (1 km) qui révèle tout bateau dans son champ pendant <strong>10 s</strong> — détection visible par les alliés (orange).</li>
+    <li>Aucun cooldown de pose (limité par votre stock).</li>
+    <li>Cliquable sur le radar (tooltip avec distance).</li>
+</ul>
+
+<h3>8.2 Balise sonar passive <span class="pill both">Sub + Dest</span></h3>
+
+<p>Bouton <strong>"Balise sonar passive"</strong> (vert) dans le panneau d'armement.</p>
+
+<p>Largage à votre position courante. <strong>N'émet aucun ping</strong>&nbsp;: elle écoute en permanence et signale tout bateau audible dont le bruit perçu dépasse son seuil <code>minNoise</code> (140.6) <strong>et</strong> est en ligne de vue directe depuis la balise.</p>
+
+<ul>
+    <li>Point bleu sur votre radar et celui de vos alliés ; <strong>invisible</strong> aux ennemis tant qu'ils ne la révèlent pas autrement (clic dans la scène 3D, balise active à proximité…).</li>
+    <li>Tick de détection toutes les <strong>3&nbsp;s</strong>. Les détections apparaissent en orange (sonar) sur le radar des alliés pendant 3&nbsp;s.</li>
+    <li>Idéal pour surveiller un goulot ou une zone d'approche sans se révéler.</li>
+</ul>
+
+<p><strong>Distances de détection (LOS clear, seuil balise = 140.6)</strong>&nbsp;:</p>
+<table>
+<tr><th>Cible</th><th>Détectée à</th></tr>
+<tr><td>Destroyer plein vitesse</td><td>~2.7 km</td></tr>
+<tr><td>Destroyer silencieux</td><td>~420 m</td></tr>
+<tr><td>Sous-marin plein vitesse</td><td>~840 m</td></tr>
+<tr><td>Sous-marin silencieux</td><td>~200 m</td></tr>
+<tr><td>Bateau à l'arrêt</td><td>jamais</td></tr>
+</table>
+
+<h3>Destruction (active ou passive)</h3>
+<p>Une balise est ciblable comme un bateau. Elle peut être détruite par&nbsp;:</p>
+<ul>
+    <li>une torpille (impact direct ≤10 m → destruction),</li>
+    <li>un tir de canon principal,</li>
+    <li>un tir d'antiaérien (DCA).</li>
+</ul>
+<p>Sélectionner la balise sur le radar puis cliquer le bouton de tir.</p>
+
+<p><span class="warn">Tactique</span>&nbsp;: une balise active placée sur une route de patrouille forçe les sous-marins à plonger ou s'éloigner. Une balise passive sur un goulot étroit révèle silencieusement les passages — l'ennemi ne sait pas qu'il a été repéré.</p>
+
+<h2 id="mines">9. Mines</h2>
+
+<p>Trois types de mines sont disponibles via les boutons "Mine surface", "Mine de fond" et "Mine suspendue" du panneau d'armement.</p>
+
+<table>
+<tr><th>Type</th><th>Profondeur</th><th>Visibilité radar</th><th>Destructible par</th></tr>
+<tr><td>Surface</td><td>0 m (flotte)</td><td>LOS directe (comme une balise)</td><td>Canon, DCA</td></tr>
+<tr><td>Fond</td><td>-490 m (plancher océanique)</td><td>Sonar uniquement, à <strong>≥ 2× range</strong></td><td>Grenade anti-sub</td></tr>
+<tr><td>Suspendue</td><td>profondeur paramétrable (champ "depth")</td><td>Sonar uniquement (mine plus furtive)</td><td>Grenade anti-sub</td></tr>
+</table>
+
+<ul>
+    <li>Posée à la position du bateau au moment du clic. Pour la mine suspendue, saisir la profondeur souhaitée (en mètres sous la surface) dans le champ à droite du bouton.</li>
+    <li><strong>Délai d'armement</strong>&nbsp;: la mine est inerte pendant <code>delay</code> minutes (1 par défaut) — le poseur peut s'éloigner.</li>
+    <li><strong>Déclenchement intelligent</strong>&nbsp;: une mine armée laisse approcher un bateau dans sa zone tant qu'il continue à se rapprocher. Dès que le bateau commence à <strong>s'éloigner</strong>, la mine explose.</li>
+    <li>Dégâts proportionnels à la distance&nbsp;: <code>damage</code> au centre, <code>damage × 0.5</code> à <code>range</code> (falloff linéaire).</li>
+    <li>Une mine est <strong>blanche</strong> sur le radar (gris quand non armée). Cliquer dessus affiche le tooltip et trace le cercle <code>range</code> autour de la mine.</li>
+    <li>Le canon/DCA contre une mine de surface, ou une grenade contre une mine sous-marine, déclenche l'<strong>explosion complète</strong> (utile pour des chaînes).</li>
+    <li>Une torpille passant à ≤80 m d'une mine armée déclenche l'explosion ; la torpille est toujours détruite. Avant armement&nbsp;: destruction silencieuse mutuelle.</li>
+    <li><strong>Désamorçage</strong>&nbsp;: bouton <kbd>D</kbd> à gauche du bouton "Mine suspendue". Sélectionnez une mine que <em>vous avez posée</em> sur le radar, approchez-vous à ≤ 200 m, puis cliquez D. La mine retourne dans votre arsenal.</li>
+</ul>
+
+<h2 id="canons">10. Canon principal et DCA</h2>
+
+<ul>
+    <li><span class="pill dest">Destroyer</span>&nbsp;: canon principal — 50 obus, 4 km, 30 dégâts.</li>
+    <li><span class="pill both">DCA (anti-aérien)</span>&nbsp;: 100 cartouches, 3 km, 1 dégât/touche, anti-drones uniquement.</li>
+</ul>
+<ol>
+    <li>Sélectionner une cible sur le radar.</li>
+    <li>Cliquer le bouton de tir (canon ou DCA selon la cible).</li>
+</ol>
+<p>Le canon ne peut pas viser un drone (utilisez la DCA), et inversement.</p>
+<p><span class="warn">Sub en plongée</span>&nbsp;: ni canon ni DCA — le sous-marin doit être en surface (au-dessus de sa flottaison) pour ouvrir le feu. Message "Canon impossible en plongée" sinon.</p>
+
+<h2 id="drones">11. Drones</h2>
+
+<table>
+<tr><th></th><th>Auto</th><th>Manuel</th></tr>
+<tr><td>Vitesse</td><td>200 (kn)</td><td>300 (kn)</td></tr>
+<tr><td>Altitude</td><td>500 m</td><td>300 m</td></tr>
+<tr><td>Autonomie</td><td>200 (sec)</td><td>150 (sec)</td></tr>
+<tr><td>Pilotage</td><td>vol circulaire / waypoints</td><td>flèches du clavier</td></tr>
+</table>
+
+<ul>
+    <li>Les drones <strong>auto</strong> patrouillent et révèlent les bateaux dans un rayon — utile pour la reconnaissance.</li>
+    <li>Les drones <strong>manuels</strong> se pilotent comme un avion. Sortir du mode renvoie le pilotage au bateau.</li>
+    <li>Un drone détecte un sub en surface à pleine portée et un sub en immersion périscopique à 1/10ᵉ de portée.</li>
+    <li>Un drone abattu (DCA) est définitivement perdu.</li>
+    <li>Les drones ne sont pas détectables au sonar — uniquement à vue directe au radar.</li>
+</ul>
+
+<h2 id="degats">12. Dégâts et survie</h2>
+
+<ul>
+    <li>Intégrité de coque&nbsp;: <strong>100</strong>.</li>
+    <li>Atteint 0&nbsp;: votre bateau coule (animation de naufrage).</li>
+    <li>Si vous coulez par tir ennemi, le tireur reçoit un bandeau de victoire.</li>
+    <li>Plonger plus profond que <code>maxDepthMeters</code> (450 m pour le sub) inflige des dégâts proportionnels au dépassement&nbsp;: la coque cède.</li>
+    <li>Période de grâce de 10 s à la connexion ("Reconnaissance: Xs" sur le radar) — vous voyez tout le monde, et vous êtes invulnérable au sonar passif des autres.</li>
+    <li><strong>Tooltip radar</strong>&nbsp;: cliquer un autre bateau (sur le radar ou en 3D) affiche son type, sa <strong>distance</strong>, sa <strong>vitesse</strong>, sa <strong>profondeur</strong> (sub) et son <strong>intégrité actuelle</strong> entre parenthèses (ex&nbsp;: "Destroyer (87%)").</li>
+</ul>
+
+<h2 id="bots">13. Bots IA</h2>
+
+<p>Le serveur peut spawner des bots (sous-marins ou destroyers) pour s'entraîner en solo ou peupler une mission. Ils naviguent par waypoints, évitent les îles et changent de profondeur (sub).</p>
+
+<h3>Détection ennemis</h3>
+<p>Un bot considère <strong>tout joueur humain comme ennemi</strong> et tous les autres bots comme alliés. Il vous repère via le sonar passif, exactement comme un joueur&nbsp;: vous êtes audible si vous dépassez votre seuil de bruit (50 % pour le destroyer, 80 % pour le sub) ou si vous naviguez en marche arrière, et que vous êtes en ligne de vue directe (pas masqué par une île).</p>
+
+<h3>Tir contre joueurs</h3>
+<ul>
+    <li><strong>Torpille</strong> (acoustique en priorité, sinon autonome) sur l'humain audible le plus proche, à ≤70 % de la portée max. Cooldown 8 s par bot.</li>
+    <li><strong>Canon</strong> (destroyer ou sub en surface) sur humain en surface à portée. Cooldown 3 s.</li>
+    <li><strong>DCA</strong> sur tout drone humain à portée. Cooldown 0.4 s par tir, 1.5 s par drone.</li>
+    <li>Un sub bot reste toujours immergé&nbsp;: il ne tire donc ni canon ni DCA (mais peut tirer des torpilles).</li>
+</ul>
+
+<h3>Limites actuelles</h3>
+<ul>
+    <li>Les torpilles bot ne contournent pas les îles (peuvent percuter en chemin).</li>
+    <li>Les bots ne larguent pas encore de leurres et n'esquivent pas les torpilles entrantes.</li>
+    <li>Pour neutraliser temporairement les bots&nbsp;: cheat <code>calmdown</code> (voir ci-dessous).</li>
+</ul>
+
+<h3>Multi-bateaux (<code>addsub</code> / <code>adddest</code>)</h3>
+<p>Avec ces codes vous pouvez avoir <strong>plusieurs bateaux</strong> contrôlables simultanément. Pour basculer&nbsp;:</p>
+<ul>
+    <li><kbd>Tab</kbd>&nbsp;: passe au bateau suivant.</li>
+    <li><kbd>Shift</kbd>+<kbd>Tab</kbd>&nbsp;: passe au précédent.</li>
+</ul>
+<p>Le bateau que vous quittez continue avec son dernier <em>cap + vitesse</em>. Il évite automatiquement les îles. Les <strong>drones manuels</strong> et <strong>torpilles filoguidées</strong> qu'il avait en l'air continuent leur trajectoire (sans contrôle manuel) tant que vous n'êtes pas revenu sur ce bateau via Tab.</p>
+<p>Si un de vos bateaux coule, vous restez sur lui pour voir le naufrage. Au prochain <kbd>Tab</kbd> il est retiré de la liste cyclable.</p>
+<p>Chaque bateau a son propre stock d'armement (torpilles, mines, etc.) initialisé depuis son JSON.</p>
+
+<h2>Bonne chasse, capitaine.</h2>
+<p style="text-align:center;margin-top:30px;"><a href="/">← Retour au jeu</a></p>
+
+</body>
+</html>

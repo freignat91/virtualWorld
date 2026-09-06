@@ -1,0 +1,98 @@
+{
+  "name": "Autodest v2 (BT destroyer simplifié)",
+  "description": "FSM simplifiée : COMBAT > APPROCHE > SEARCH. Sans périscope/plongée. Ping sonar actif intégré. APPROCHE plein gaz, le destroyer n'a pas à se cacher.",
+  "tree": {
+    "type": "Sequence",
+    "name": "Tick complet",
+    "children": [
+      { "type": "Action", "name": "Sync players[]", "fn": "sync_player" },
+      { "type": "Action", "name": "Détection passive", "fn": "passive_detection" },
+      {
+        "type": "AlwaysSuccess",
+        "name": "Ping sonar actif",
+        "child": {
+          "type": "Selector",
+          "name": "Ping court si cible récente, sinon long",
+          "children": [
+            {
+              "type": "Sequence",
+              "name": "Ping court (10s) si cible récente",
+              "children": [
+                { "type": "Condition", "fn": "enemy_known_recent", "params": { "max_age_s": 30.0 } },
+                { "type": "Action",    "fn": "sonar_ping",         "params": { "cooldown_s": 10.0 } }
+              ]
+            },
+            {
+              "type": "Action", "name": "Ping long (20s) en patrouille",
+              "fn": "sonar_ping", "params": { "cooldown_s": 20.0 }
+            }
+          ]
+        }
+      },
+      {
+        "type": "Selector",
+        "name": "FSM combat / approche / exploration",
+        "children": [
+          {
+            "type": "Sequence",
+            "name": "COMBAT (défense ou attaque)",
+            "children": [
+              { "type": "Condition", "fn": "bots_active" },
+              {
+                "type": "Selector",
+                "children": [
+                  { "type": "Condition", "fn": "combat_should_continue" },
+                  { "type": "Condition", "fn": "enemy_known_recent", "params": { "max_age_s": 30.0 } }
+                ]
+              },
+              { "type": "Action", "fn": "combat_react", "params": { "attack_range_m": 3000.0 } }
+            ]
+          },
+          {
+            "type": "Sequence",
+            "name": "APPROCHE (ennemi connu)",
+            "children": [
+              { "type": "Condition", "fn": "bots_active" },
+              { "type": "Condition", "fn": "enemy_known_recent", "params": { "max_age_s": 30.0 } },
+              { "type": "Action", "fn": "combat_approach", "params": { "attack_range_m": 3000.0, "full_speed": true } }
+            ]
+          },
+          {
+            "type": "Sequence",
+            "name": "SEARCH (exploration)",
+            "children": [
+              { "type": "Action", "fn": "navigate_island_hop", "params": { "full_speed": true } }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "AlwaysSuccess",
+        "name": "Tir canon",
+        "child": {
+          "type": "Sequence",
+          "children": [
+            { "type": "Condition", "fn": "bots_active" },
+            { "type": "Condition", "fn": "has_cannon" },
+            { "type": "Condition", "fn": "cannon_cooldown_ok" },
+            { "type": "Action",    "fn": "fire_cannon_at_surface_enemy", "params": { "cooldown_s": 3.0 } }
+          ]
+        }
+      },
+      {
+        "type": "AlwaysSuccess",
+        "name": "Tir DCA",
+        "child": {
+          "type": "Sequence",
+          "children": [
+            { "type": "Condition", "fn": "bots_active" },
+            { "type": "Condition", "fn": "has_aa" },
+            { "type": "Condition", "fn": "aa_cooldown_ok" },
+            { "type": "Condition", "fn": "has_human_drone_in_range" },
+            { "type": "Action",    "fn": "fire_aa_at_human_drone", "params": { "cooldown_s": 0.4, "per_drone_cooldown_s": 1.5 } }
+          ]
+        }
+      }
+    ]
+  }
+}

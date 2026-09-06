@@ -1,0 +1,144 @@
+{
+  "name": "Autodest (BT destroyer)",
+  "description": "FSM par blackboard, miroir d'autosub mais sans périscope/plongée. EVADE_TORP > RETREAT > ATTACK > APPROACH > STALK > SEARCH. Ping sonar actif intégré : 20s en patrouille, 10s avec cible récente. Le destroyer n'a pas à se cacher.",
+  "tree": {
+    "type": "Sequence",
+    "name": "Tick complet",
+    "children": [
+      { "type": "Action", "name": "Sync players[]", "fn": "sync_player" },
+      { "type": "Action", "name": "Détection passive", "fn": "passive_detection" },
+      {
+        "type": "AlwaysSuccess",
+        "name": "Ping sonar actif",
+        "child": {
+          "type": "Selector",
+          "name": "Ping court si cible récente, sinon long",
+          "children": [
+            {
+              "type": "Sequence",
+              "name": "Ping court (10s) si cible récente",
+              "children": [
+                { "type": "Condition", "fn": "enemy_known_recent", "params": { "max_age_s": 30.0 } },
+                { "type": "Action",    "fn": "sonar_ping",         "params": { "cooldown_s": 10.0 } }
+              ]
+            },
+            {
+              "type": "Action", "name": "Ping long (20s) en patrouille",
+              "fn": "sonar_ping", "params": { "cooldown_s": 20.0 }
+            }
+          ]
+        }
+      },
+      {
+        "type": "Selector",
+        "name": "FSM (priorité haut→bas)",
+        "children": [
+          {
+            "type": "Sequence",
+            "name": "EVADE_TORP",
+            "children": [
+              { "type": "Condition", "fn": "torpedo_acquired" },
+              { "type": "Action", "fn": "evade_torpedo", "params": { "flee_distance_m": 800.0, "flee_duration_s": 30.0, "noise_margin": 0.05 } }
+            ]
+          },
+          {
+            "type": "Sequence",
+            "name": "EVADE_DESTROYER (surpris en portée canon)",
+            "children": [
+              { "type": "Action", "fn": "engage_destroyer_runaway", "params": { "cannon_cooldown_s": 3.0 } }
+            ]
+          },
+          {
+            "type": "Sequence",
+            "name": "RETREAT",
+            "children": [
+              { "type": "Condition", "fn": "state_is", "params": { "name": "RETREAT" } },
+              { "type": "Action", "fn": "retreat_to_cover", "params": { "arrive_radius_m": 50.0, "timeout_s": 60.0, "full_speed": true } }
+            ]
+          },
+          {
+            "type": "Sequence",
+            "name": "ATTACK",
+            "children": [
+              { "type": "Condition", "fn": "state_is", "params": { "name": "ATTACK" } },
+              { "type": "Condition", "fn": "bots_active" },
+              { "type": "Action", "fn": "attack_torpedo_at_known", "params": { "clear_after_s": 30.0, "salvo_size": 1, "max_torpedoes": 4, "relocate_m": 250.0, "cooldown_s": 8.0, "min_dist_destroyer_m": 1500.0, "noise_margin": 0.05, "retreat_after_attack_proba": 0.5 } }
+            ]
+          },
+          {
+            "type": "Sequence",
+            "name": "APPROACH",
+            "children": [
+              { "type": "Condition", "fn": "state_is", "params": { "name": "APPROACH" } },
+              { "type": "Action", "fn": "approach_enemy", "params": { "attack_range_m": 3000.0, "clear_after_s": 30.0, "noise_margin": 0.05 } }
+            ]
+          },
+          {
+            "type": "Sequence",
+            "name": "STALK",
+            "children": [
+              { "type": "Condition", "fn": "state_is", "params": { "name": "STALK" } },
+              { "type": "Action", "fn": "wait_observe", "params": { "secs": 15.0, "attack_range_m": 3000.0, "clear_after_s": 30.0, "set_state_after": "SEARCH" } }
+            ]
+          },
+          {
+            "type": "Sequence",
+            "name": "SEARCH",
+            "children": [
+              { "type": "Condition", "fn": "state_is", "params": { "name": "SEARCH" } },
+              {
+                "type": "AlwaysSuccess",
+                "name": "Transition SEARCH→STALK si ennemi détecté",
+                "child": {
+                  "type": "Sequence",
+                  "children": [
+                    { "type": "Condition", "fn": "has_audible_enemy" },
+                    { "type": "Action", "fn": "set_state", "params": { "name": "STALK" } }
+                  ]
+                }
+              },
+              {
+                "type": "AlwaysSuccess",
+                "child": { "type": "Action", "fn": "launch_auto_drones", "params": { "n": 2, "interval_s": 8.0 } }
+              },
+              { "type": "Action", "fn": "navigate_island_hop", "params": { "full_speed": true } }
+            ]
+          },
+          {
+            "type": "Action",
+            "name": "Default → SEARCH",
+            "fn": "set_state",
+            "params": { "name": "SEARCH" }
+          }
+        ]
+      },
+      {
+        "type": "AlwaysSuccess",
+        "name": "Tir canon",
+        "child": {
+          "type": "Sequence",
+          "children": [
+            { "type": "Condition", "fn": "bots_active" },
+            { "type": "Condition", "fn": "has_cannon" },
+            { "type": "Condition", "fn": "cannon_cooldown_ok" },
+            { "type": "Action",    "fn": "fire_cannon_at_surface_enemy", "params": { "cooldown_s": 3.0 } }
+          ]
+        }
+      },
+      {
+        "type": "AlwaysSuccess",
+        "name": "Tir DCA",
+        "child": {
+          "type": "Sequence",
+          "children": [
+            { "type": "Condition", "fn": "bots_active" },
+            { "type": "Condition", "fn": "has_aa" },
+            { "type": "Condition", "fn": "aa_cooldown_ok" },
+            { "type": "Condition", "fn": "has_human_drone_in_range" },
+            { "type": "Action",    "fn": "fire_aa_at_human_drone", "params": { "cooldown_s": 0.4, "per_drone_cooldown_s": 1.5 } }
+          ]
+        }
+      }
+    ]
+  }
+}

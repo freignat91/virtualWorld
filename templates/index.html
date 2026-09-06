@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Virtual World</title>
+    <style>
+        * { margin: 0; padding: 0; }
+        html, body { width: 100%; height: 100%; overflow: hidden; }
+        #renderCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; touch-action: none; z-index: 0; }
+        #info {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            color: white;
+            font-family: monospace;
+            font-size: 14px;
+            background: rgba(0,0,0,0.6);
+            padding: 10px;
+            border-radius: 5px;
+            z-index: 10;
+        }
+        #botsBtn {
+            display: none;
+            position: absolute;
+            top: 243px;
+            left: 10px;
+            width: 50px;
+            box-sizing: border-box;
+            color: #fff;
+            background: #5a4a6a;
+            border: none;
+            border-radius: 4px;
+            padding: 6px 0;
+            font-family: monospace;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            z-index: 10;
+        }
+        #botsBtn:hover { background: #7a6a8a; }
+        #zoomBtn {
+            display: none;
+            position: absolute;
+            top: 243px;
+            left: 64px;
+            width: 50px;
+            box-sizing: border-box;
+            color: #fff;
+            background: #6a4a8a;
+            border: none;
+            border-radius: 4px;
+            padding: 6px 0;
+            font-family: monospace;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            z-index: 10;
+        }
+        #zoomBtn:hover { background: #7a5aa0; }
+        #zoomLowBtn {
+            display: none;
+            position: absolute;
+            top: 243px;
+            left: 118px;
+            width: 70px;
+            box-sizing: border-box;
+            color: #fff;
+            background: #4a6a8a;
+            border: none;
+            border-radius: 4px;
+            padding: 6px 0;
+            font-family: monospace;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            z-index: 10;
+        }
+        #zoomLowBtn:hover { background: #5a7a9a; }
+        .botsTypeBtn {
+            flex: 1 1 calc(50% - 4px);
+            padding: 8px 6px;
+            background: #2a5a8a;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .botsTypeBtn:hover { background: #3a6aa0; }
+        .botsTypeBtn.selected { background: #88ccff; color: #000; }
+        #periscopeBtn {
+            display: none;
+            position: absolute;
+            top: 275px;
+            left: 76px;
+            width: 36px;
+            box-sizing: border-box;
+            color: #fff;
+            background: #2a5a8a;
+            border: none;
+            border-radius: 4px;
+            padding: 6px 0;
+            font-family: monospace;
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+            z-index: 10;
+        }
+        #periscopeBtn:hover { background: #3a6aa0; }
+        #surfaceBtn {
+            display: none;
+            position: absolute;
+            top: 275px;
+            left: 118px;
+            width: 36px;
+            box-sizing: border-box;
+            color: #fff;
+            background: #2a5a8a;
+            border: none;
+            border-radius: 4px;
+            padding: 6px 0;
+            font-family: monospace;
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+            z-index: 10;
+        }
+        #surfaceBtn:hover { background: #3a6aa0; }
+        #targetDepthInput {
+            display: none;
+            position: absolute;
+            top: 275px;
+            left: 160px;
+            width: 74px;
+            box-sizing: border-box;
+            color: #fff;
+            background: #1a3340;
+            border: 1px solid #888;
+            border-radius: 4px;
+            padding: 6px 6px;
+            font-family: monospace;
+            font-size: 13px;
+            z-index: 10;
+        }
+        #weaponsToggle {
+            display: none;
+            position: absolute;
+            top: 307px;
+            left: 10px;
+            width: 450px;
+            color: white;
+            font-family: monospace;
+            font-size: 15px;
+            font-weight: bold;
+            background: #333;
+            padding: 10px;
+            border: none;
+            border-radius: 5px;
+            box-sizing: border-box;
+            z-index: 10;
+            text-align: center;
+            cursor: pointer;
+        }
+        #weaponsToggle:hover { background: #444; }
+        #weaponsPopup {
+            display: none;
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            max-height: calc(100vh - 20px);
+            overflow-y: auto;
+            width: 320px;
+            color: white;
+            font-family: monospace;
+            font-size: 12px;
+            background: rgba(0,0,0,0.85);
+            padding: 10px;
+            border: 1px solid #555;
+            border-radius: 6px;
+            box-sizing: border-box;
+            z-index: 30;
+        }
+        #weaponsPopup .weaponsHeader {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            font-weight: bold;
+            cursor: move;
+            user-select: none;
+        }
+        #weaponsPopup .weaponsClose {
+            background: transparent;
+            color: #aaa;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            padding: 0 6px;
+        }
+        #weaponsPopup .weaponsClose:hover { color: #fff; }
+        #sonarGrenadePanel {
+            display: none;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-bottom: 6px;
+            align-items: center;
+        }
+        #sonarGrenadePanel button {
+            flex: 1;
+            background: #2a5a8a;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 6px 8px;
+            font-family: monospace;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        #sonarGrenadePanel button:hover { background: #3a7aaa; }
+        #sonarGrenadePanel #grenadeBtn, #sonarGrenadePanel .grenadeBtn {
+            background: #8a6a2a;
+            white-space: nowrap;
+        }
+        #sonarGrenadePanel #grenadeBtn:hover, #sonarGrenadePanel .grenadeBtn:hover { background: #aa8a3a; }
+        #sonarGrenadePanel #grenadeBtn:disabled, #sonarGrenadePanel .grenadeBtn:disabled { background: #444; color: #888; cursor: not-allowed; }
+        #sonarGrenadePanel input {
+            width: 50px;
+            padding: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            text-align: center;
+            border: 1px solid #888;
+            border-radius: 3px;
+            flex: 0 0 50px;
+        }
+        #torpedoPanel {
+            display: none;
+            color: white;
+            font-family: monospace;
+            font-size: 14px;
+            box-sizing: border-box;
+            text-align: center;
+        }
+        #torpedoPanel .torpedoRow {
+            display: flex;
+            align-items: stretch;
+            gap: 6px;
+            margin: 4px 0;
+        }
+        #torpedoPanel button {
+            flex: 1;
+            background: #8a6a2a;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 6px 8px;
+            font-family: monospace;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        #torpedoPanel button:hover { background: #aa8a3a; }
+        #torpedoPanel button:disabled { background: #444; color: #888; cursor: not-allowed; }
+        #torpedoPanel button.previewBtn { flex: 0 0 26px; padding: 6px 0; background: #6a2020; }
+        #torpedoPanel button.previewBtn:hover { background: #8a3030; }
+        #dronePanel { margin-top: 6px; border-top: 1px solid #444; padding-top: 5px; }
+        #dronePanel .torpedoRow { display: flex; align-items: stretch; gap: 5px; margin: 3px 0; }
+        #dronePanel button { flex: 1; background: #2a5a8a; color: white; border: none; border-radius: 4px; padding: 6px 8px; font-family: monospace; font-size: 12px; font-weight: bold; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        #dronePanel button:hover { background: #3a6aa0; }
+        #dronePanel button:disabled { background: #444; color: #888; cursor: not-allowed; }
+        #dronePanel button.previewBtn { flex: 0 0 26px; padding: 6px 0; background: #6a2020; }
+        #dronePanel button.previewBtn:hover { background: #8a3030; }
+        #minePanel { margin-top: 6px; border-top: 1px solid #444; padding-top: 5px; display: none; }
+        #minePanel .torpedoRow { display: flex; align-items: stretch; gap: 5px; margin: 3px 0; }
+        #minePanel button { flex: 1; background: #8a6a2a; color: white; border: none; border-radius: 4px; padding: 6px 8px; font-family: monospace; font-size: 12px; font-weight: bold; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        #minePanel button:hover { background: #aa8a3a; }
+        #minePanel button:disabled { background: #444; color: #888; cursor: not-allowed; }
+        #minePanel button.previewBtn { flex: 0 0 26px; padding: 6px 0; background: #6a2020; }
+        #minePanel button.previewBtn:hover { background: #8a3030; }
+        #minePanel input { width: 70px; padding: 4px; font-family: monospace; font-size: 11px; text-align: center; border: 1px solid #888; border-radius: 3px; }
+        #cannonPanel { margin-top: 6px; border-top: 1px solid #444; padding-top: 5px; }
+        #cannonPanel .torpedoRow { display: flex; align-items: stretch; gap: 5px; margin: 3px 0; }
+        #cannonPanel button { flex: 1; background: #6a4a1a; color: white; border: none; border-radius: 4px; padding: 6px 8px; font-family: monospace; font-size: 12px; font-weight: bold; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        #cannonPanel button:hover { background: #8a6a2a; }
+        #cannonPanel button:disabled { background: #444; color: #888; cursor: not-allowed; }
+        #torpedoPanel input {
+            width: 56px;
+            padding: 4px;
+            font-family: monospace;
+            font-size: 11px;
+            text-align: center;
+            border: 1px solid #888;
+            border-radius: 3px;
+        }
+        #radar {
+            display: none;
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            width: 450px;
+            height: 225px;
+            border: 2px solid #00ff00;
+            border-radius: 5px;
+            background: #001a00;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <div id="boatSelect" style="position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.85);z-index:100;">
+        <div style="text-align:center;color:white;font-family:monospace;max-width:560px;padding:20px;">
+            <h2 style="margin-bottom:16px;">Bateau et équipe</h2>
+
+            <h3 style="margin-bottom:10px;font-size:15px;color:#cce8ff;">1. Choisissez votre navire amiral</h3>
+            <div>
+                <button id="loginBoatDest" type="button" style="padding:12px 26px;margin:6px;font-size:15px;cursor:pointer;background:#2a5a8a;color:white;border:2px solid #2a5a8a;border-radius:5px;">Destroyer</button>
+                <button id="loginBoatSub" type="button" style="padding:12px 26px;margin:6px;font-size:15px;cursor:pointer;background:#1a4a5a;color:white;border:2px solid #1a4a5a;border-radius:5px;">Sous-marin</button>
+            </div>
+
+            <h3 style="margin-top:18px;margin-bottom:10px;font-size:15px;color:#cce8ff;">2. Choisissez votre équipe</h3>
+            <div id="teamList" style="margin-bottom:14px;text-align:left;min-height:30px;"></div>
+            <div style="font-size:13px;color:#aac;">— ou créer une nouvelle équipe —</div>
+            <div style="margin-top:10px;display:flex;gap:8px;align-items:center;justify-content:center;">
+                <input id="teamNameInput" type="text" maxlength="32" placeholder="Nom équipe" style="padding:8px;font-family:monospace;font-size:14px;border-radius:4px;border:1px solid #888;background:#1a3340;color:#fff;width:180px;">
+                <button id="teamCreateBtn" type="button" style="padding:8px 16px;font-family:monospace;font-size:14px;cursor:pointer;background:#2a8a5a;color:white;border:none;border-radius:4px;">Créer et rejoindre</button>
+            </div>
+
+            <div style="margin-top:20px;font-size:13px;line-height:1.5;color:#aac;">
+                Pour ajouter un destroyer tapez "adddest" en jeu<br>
+                Pour ajouter un sous-marin tapez "addsub" en jeu<br>
+                Pour passer de l'un à l'autre tapez sur la touche &lt;tab&gt;
+            </div>
+            <div style="margin-top:14px;"><a href="/aide" target="_blank" style="color:#88ddff;font-size:14px;">📖 Manuel du joueur</a></div>
+            <div style="margin-top:14px;font-size:13px;line-height:1.5;color:#aac;">
+                <b style="color:#cce;">Cheat codes :</b><br>
+                Toutes les armes : <code style="color:#fff;">idkfa</code><br>
+                Eau plus claire en plongée : <code style="color:#fff;">water</code><br>
+                Accélération du temps : <code style="color:#fff;">time1</code>, <code style="color:#fff;">time2</code>, <code style="color:#fff;">time4</code>, <code style="color:#fff;">time8</code>
+            </div>
+        </div>
+    </div>
+    <div id="adminMenu" style="display:none;position:absolute;top:0;left:0;right:0;background:rgba(0,0,0,0.85);color:#fff;padding:8px 12px;font-family:sans-serif;font-size:14px;z-index:100;">
+        <span style="margin-right:20px;font-weight:bold;">⚙ ADMIN</span>
+        <button id="admLoad" title="Charger une carte existante depuis le dossier maps/">Charger une carte</button>
+        <button id="admNew" title="Créer une nouvelle carte vide (nom + dimensions en km)">Nouvelle carte</button>
+        <button id="admAdd" title="Ajouter une île : cliquer ses points sur la carte, Entrée pour fermer le polygone, Échap pour annuler">Ajouter une île</button>
+        <button id="admDelete" title="Supprimer une île : cliquer dans le polygone d'une île, confirmation demandée">Supprimer une île</button>
+        <button id="admEdit" title="Modifier une île : cliquer-glisser un point du polygone pour le déplacer">Modifier une île</button>
+        <button id="admMove" title="Déplacer une île : cliquer-glisser à l'intérieur du polygone pour le translater entièrement">Déplacer une île</button>
+        <button id="admRescale" title="Redimensionner la carte : nouvelles dimensions en km, les positions des îles sont recalculées proportionnellement">Redimensionner la carte</button>
+        <button id="admCopy" title="Copier la carte actuelle vers un nouveau nom et l'activer">Copier la carte</button>
+        <button id="admIslandTexture" title="Changer la texture du plateau d'îles : choisir une texture puis cliquer sur les îles à modifier">Texture île</button>
+        <button id="admAddThermocline" title="Ajouter une thermocline (couche thermique) : saisir la profondeur, cliquer les points du polygone, Entrée pour fermer, Échap pour annuler">Thermocline</button>
+        <button id="admDeleteThermocline" title="Supprimer une thermocline : cliquer à l'intérieur de son polygone">Supprimer thermocline</button>
+        <button id="admSave" title="Sauvegarder la carte courante sur le serveur">Sauvegarde de la carte</button>
+        <span id="admStatus" style="margin-left:20px;color:#ff0;"></span>
+    </div>
+    <div id="islandTexturePopup" style="display:none;position:absolute;top:60px;left:50%;transform:translateX(-50%);background:rgba(20,20,20,0.95);color:#fff;padding:12px;border:1px solid #888;border-radius:6px;z-index:101;max-width:560px;font-family:sans-serif;font-size:13px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span style="font-weight:bold;">Choisis une texture, puis clique sur les îles à modifier</span>
+            <button id="admTextureClose" title="Fermer le mode texture">✕</button>
+        </div>
+        <div id="textureGallery" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+        <div id="textureSelected" style="margin-top:8px;color:#9f9;font-size:12px;"></div>
+    </div>
+    <canvas id="renderCanvas"></canvas>
+    <div id="damageOverlay" style="display:none;position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:5;box-shadow:inset 0 0 120px 40px rgba(255,0,0,0.7);"></div>
+    <canvas id="radar" title="Clic = sélection cible / clic-glisser = pan / molette = zoom / Shift+clic-glisser = déplacer le bloc UI"></canvas>
+    <button id="botsBtn" title="Ajouter une unité (sous-marin ou destroyer, manuelle, BT ou IA) à votre équipe ou à l'équipe Bots adverse">Unités</button>
+    <button id="zoomBtn" title="Vue zoom à la première personne : pointe la souris vers un endroit du décor avant de cliquer (ou cliquer à nouveau pour quitter).">Zoom</button>
+    <button id="zoomLowBtn" title="Vue zoom basse (5m sous la surface) pour observer sous l'eau.">Zoom bas</button>
+    <div id="botsPopup" style="display:none;position:absolute;top:275px;left:10px;background:rgba(0,0,0,0.9);border:1px solid #555;border-radius:6px;padding:14px;z-index:30;min-width:340px;color:#fff;font-family:monospace;font-size:13px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <span style="font-weight:bold;">Ajouter une unité</span>
+            <button id="botsPopupClose" type="button" style="background:transparent;color:#aaa;border:none;font-size:18px;cursor:pointer;padding:0 6px;">×</button>
+        </div>
+        <div style="margin-bottom:8px;color:#cce8ff;">Type d'unité :</div>
+        <div id="botsTypeRow" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px;">
+            <button data-bot="addsub"   type="button" class="botsTypeBtn">Sub manuel</button>
+            <button data-bot="adddest"  type="button" class="botsTypeBtn">Destroyer manuel</button>
+            <button data-bot="autosub"  type="button" class="botsTypeBtn">Sub auto (BT)</button>
+            <button data-bot="autodest" type="button" class="botsTypeBtn">Destroyer auto (BT)</button>
+        </div>
+        <div id="botsTeamSection">
+            <div style="margin-bottom:8px;color:#cce8ff;">Équipe :</div>
+            <div style="display:flex;gap:6px;">
+                <button id="botsAddMine" type="button" style="flex:1;padding:8px;background:#2a8a5a;color:#fff;border:none;border-radius:4px;cursor:pointer;font-family:monospace;">Mon équipe</button>
+                <button id="botsAddBots" type="button" style="flex:1;padding:8px;background:#8a2a5a;color:#fff;border:none;border-radius:4px;cursor:pointer;font-family:monospace;">Équipe « Bots »</button>
+            </div>
+        </div>
+        <div id="botsManualSection" style="display:none;">
+            <button id="botsAddManual" type="button" style="width:100%;padding:8px;background:#2a8a5a;color:#fff;border:none;border-radius:4px;cursor:pointer;font-family:monospace;">Ajouter à mon équipe</button>
+        </div>
+        <div id="botsStatus" style="margin-top:10px;color:#ff0;font-size:12px;min-height:14px;"></div>
+    </div>
+    <div id="timeMultiplierIndicator" style="display:none;position:absolute;color:#a00000;font-weight:bold;font-size:14px;font-family:monospace;pointer-events:none;z-index:50;text-shadow:0 0 3px rgba(0,0,0,0.8);"></div>
+    <button id="periscopeBtn" title="Mettre le sous-marin en immersion périscopique (~5 m). Permet de voir la surface tout en restant immergé. Le sous-marin est invisible au radar en immersion périscopique (uniquement détectable au sonar actif).">P</button>
+    <button id="surfaceBtn" title="Faire surface : le sous-marin remonte automatiquement jusqu'à la surface.">S</button>
+    <input id="targetDepthInput" type="number" min="0" max="500" step="1" placeholder="Prof. m" title="Saisir une profondeur en mètres et appuyer sur Entrée pour y plonger automatiquement (uniquement sub)">
+    <button id="weaponsToggle" title="Ouvrir / fermer le panneau d'armement">Armes</button>
+    <div id="weaponsPopup">
+        <div class="weaponsHeader">
+            <span>Armement</span>
+            <button class="weaponsClose" id="weaponsClose" title="Fermer le panneau">×</button>
+        </div>
+        <div id="sonarGrenadePanel">
+            <div id="sonarRow" style="display:flex;gap:5px;margin-bottom:5px;">
+                <button id="sonarShortBtn" title="Ping sonar étroit : cône long et concentré devant le bateau. Révèle les ennemis dans le cône.">Sonar 30°</button>
+                <button id="sonarLargeBtn" title="Ping sonar large : cône large mais court devant le bateau. Révèle les ennemis dans le cône.">Sonar 120°</button>
+            </div>
+            <div id="grenadeRow" style="display:flex;gap:5px;align-items:stretch;">
+                <button id="grenadeBtn" title="Lancer une grenade sur la cible sélectionnée">Grenade</button>
+                <button id="grenadeVolleyBtn" class="grenadeBtn" title="Salve de grenades autour de la cible (50m d'espacement en spirale)">Salve</button>
+                <button id="grenadeManualBtn" class="grenadeBtn" title="Cliquer sur la carte ou la scène 3D pour tirer une grenade à cet emplacement">Manuel</button>
+                <input id="grenadeDepth" type="number" min="0" max="500" step="1" value="10" title="Profondeur d'explosion en mètres">
+            </div>
+        </div>
+        <div id="torpedoPanel">
+            <div class="torpedoRow">
+                <button id="torpedoAcousticDestroy" class="previewBtn" title="Auto-destruction : faire exploser immédiatement toutes les torpilles acoustiques en vol (utile si elles ont raté leur cible ou risquent de se rabattre sur vous)">D</button>
+                <button id="torpedoAcoustic" title="Sélectionner d'abord une cible sur le radar (clic), puis cliquer ce bouton pour lancer une torpille acoustique. Elle file vers la cible initiale, puis passe en mode acquisition après la distance d'activation et suit la source de bruit la plus forte.">Torpilles acoust.</button>
+                <button id="torpedoAcousticPreview" class="previewBtn" title="Aperçu sur le radar du rayon d'activation (10 s)">A</button>
+                <input id="torpedoAcousticActivation" type="number" min="0" step="10" value="1000" title="Distance d'activation en mètres (la torpille passe en acquisition après avoir parcouru cette distance)">
+            </div>
+            <div class="torpedoRow">
+                <button id="torpedoWireGuidedDestroy" class="previewBtn" title="Auto-destruction : faire exploser immédiatement la torpille filoguidée en vol (utile si elle a raté sa cible ou pour libérer le slot afin d'en relancer une autre)">D</button>
+                <button id="torpedoWireGuided" title="Sélectionner d'abord une cible sur le radar (clic), puis cliquer ce bouton pour lancer la torpille filoguidée. Une fois en vol, la guider manuellement avec les flèches gauche/droite (le bateau ne répond plus aux flèches). Vue bateau conservée. Une seule torpille à la fois — le bouton 'D' la fait exploser.">Torpille filoguidée</button>
+                <input id="torpedoWireGuidedActivation" type="number" min="0" step="10" value="1000" title="Distance d'activation en mètres (non utilisée pour la filoguidée)">
+            </div>
+            <div class="torpedoRow">
+                <button id="torpedoAutonomousDestroy" class="previewBtn" title="Auto-destruction : faire exploser immédiatement toutes les torpilles autonomes en vol (utile si elles ont raté leur cible ou risquent de se rabattre sur vous)">D</button>
+                <button id="torpedoAutonomous" title="Sélectionner d'abord une cible sur le radar (clic), puis cliquer ce bouton pour lancer une torpille autonome. Elle file vers la cible initiale, puis passe en mode acquisition après la distance d'activation et cherche tout bateau par le bruit qu'il émet.">Torpille auto.</button>
+                <button id="torpedoAutonomousPreview" class="previewBtn" title="Aperçu sur le radar du rayon d'activation (10 s)">A</button>
+                <input id="torpedoAutonomousActivation" type="number" min="0" step="10" value="1000" title="Distance d'activation en mètres">
+            </div>
+        </div>
+        <div id="minePanel">
+            <div class="torpedoRow">
+                <button id="mineSurfBtn" title="Larguer une mine de surface (flotte au niveau de l'eau, hérissée de pointes). Détectable par tout bateau passant à moins de range mètres après le délai d'armement. Destructible au canon (déclenche l'explosion complète).">Mine surface</button>
+                <button id="mineBottomBtn" title="Larguer une mine de fond posée au plancher océanique. Détonne quand un bateau passe à moins de range mètres horizontalement. Destructible aux grenades (déclenche l'explosion complète).">Mine de fond</button>
+            </div>
+            <div class="torpedoRow">
+                <button id="mineDisarmBtn" class="previewBtn" title="Désamorcer la mine sélectionnée sur le radar. Seul le bateau qui a posé la mine peut la désamorcer. Il faut s'approcher à 200 m maximum, sélectionner la mine puis cliquer ce bouton — la mine retourne dans votre arsenal et disparaît du jeu.">D</button>
+                <button id="mineSuspendedBtn" title="Larguer une mine suspendue, accrochée au fond par un câble. Le chiffre à droite est la profondeur de la mine sous la surface (mètres). Destructible aux grenades.">Mine suspendue</button>
+                <input id="mineDepthMeters" type="number" min="1" max="495" step="5" value="20" title="Profondeur de la mine sous la surface, en mètres (1–495)">
+            </div>
+        </div>
+        <div id="cannonPanel">
+            <div class="torpedoRow">
+                <button id="cannonBtn" title="Tirer un obus sur la cible bateau sélectionnée sur le radar. Précision dégrade au-delà de la mi-portée. Ne peut pas viser un drone.">Canon</button>
+            </div>
+            <div class="torpedoRow">
+                <button id="aaBtn" title="Tirer une rafale antiaérienne sur la cible (drone ou bateau) sélectionnée sur le radar. Très efficace contre les drones, dégâts symboliques sur un bateau.">Canon antiaérien</button>
+            </div>
+        </div>
+        <div id="dronePanel">
+            <div class="torpedoRow">
+                <button id="droneAutoBtn" title="Lancer un drone automatique : explore la carte en ligne droite, rebondit sur les bords, revient au bateau à la moitié de son autonomie. Reconnaissance des îles et bateaux ennemis.">Drone automatique</button>
+                <button id="droneAutoRecall" class="previewBtn" title="Rappeler tous les drones automatiques en vol vers le bateau">R</button>
+            </div>
+            <div class="torpedoRow">
+                <button id="droneManualSwitch" class="previewBtn" title="Basculer la vue caméra entre le bateau et le drone manuel (le drone continue de voler)">B</button>
+                <button id="droneManualBtn" title="Lancer un drone manuel : pilotage aux flèches (gauche/droite tourne, haut accélère, bas freine/recule), Espace monte, X descend, O arrêt complet. Vue plongeante depuis le drone.">Drone manuel</button>
+                <button id="droneManualRecall" class="previewBtn" title="Rappeler le drone manuel vers le bateau (à pleine vitesse)">R</button>
+            </div>
+        </div>
+        <button id="passiveSonarBeaconBtn" title="Poser une balise sonar passive : ne ping pas, mais détecte en continu les bateaux ennemis audibles en LOS. Seul vous et votre équipe voyez les détections. Visible (bleu) sur le radar de tous. Destructible au canon ou DCA." style="display:none;width:100%;margin-top:6px;background:#3a5a2a;color:white;border:none;border-radius:4px;padding:6px 8px;font-family:monospace;font-size:12px;font-weight:bold;cursor:pointer">Balise sonar passive</button>
+        <button id="sonarBeaconBtn" title="Poser une balise sonar active : émet un ping toutes les 30 s qui révèle pendant 10 s tout bateau dans son rayon, à tout le monde. Visible (jaune) sur le radar de tous les joueurs. Destructible à la torpille ou au canon." style="display:none;width:100%;margin-top:6px;background:#3a5a2a;color:white;border:none;border-radius:4px;padding:6px 8px;font-family:monospace;font-size:12px;font-weight:bold;cursor:pointer">Balise sonar active</button>
+        <button id="acousticLureBtn" title="Larguer un leurre acoustique : génère du bruit pendant quelques secondes pour détourner les torpilles acoustiques (et autonomes en mode acquisition) qui suivent la source de bruit la plus forte. Sans effet sur les torpilles filoguidées." style="display:block;width:100%;margin-top:6px;background:#3a5a2a;color:white;border:none;border-radius:4px;padding:6px 8px;font-family:monospace;font-size:12px;font-weight:bold;cursor:pointer">Leurre</button>
+    </div>
+    <div id="info">
+        <span id="integrityDisplay">Intégrité: 100%</span><br>
+        <span id="speedDisplay">Vitesse: 0</span><br>
+        <span id="headingDisplay">Cap: 0°</span><br>
+        <span id="depthDisplay" style="display:none">Profondeur: 0m</span><br>
+        <span id="modeDisplay" style="display:none">Mode: jour</span>
+    </div>
+    <div id="sinkMessage" style="display:none;position:absolute;top:40%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.75);color:#fff;padding:24px 36px;border-radius:8px;font-family:sans-serif;font-size:20px;text-align:center;z-index:10">
+        Votre bateau coule.<br>Rechargez la page pour reprendre une partie.
+    </div>
+    <script src="/static/babylon.js"></script>
+    <script src="/static/earcut.min.js"></script>
+    <script src="/static/babylon.glTFFileLoader.js"></script>
+    <script src="/static/socket.io.min.js"></script>
+    <script src="/static/game.js?v=949"></script>
+</body>
+</html>

@@ -1,0 +1,110 @@
+{
+  "model": "models/navire/scene.glb",
+  "speed": 25,
+  "scale": 5,
+  "noise": 100,
+  "minNoise": 6,
+  "speedNoiseLimit": 0.8,
+  "flotation": 2,
+  "acousticLures": {
+    "number": 10,
+    "time": 2,
+    "noise": 800
+  },
+  "sonarBeacons": {
+    "number": 10,
+    "pingIntervalSec": 30,
+    "rangeMeters": 2000,
+    "thermoclinePenetration": 0.1
+  },
+  "passiveSonarBeacons": {
+    "number": 10,
+    "minNoise": 140.6
+  },
+  "modelRotationOffset": -1.5708,
+  "activeSonar": {
+    "shortAngle": 10,
+    "shortAngleRange": 8000,
+    "largeAngle": 30,
+    "largeAngleRange": 4000,
+    "reveal": 15000,
+    "thermoclinePenetration": 0.1
+  },
+  "passiveSonar": {
+    "minNoise": 4
+  },
+  "maxDepthMeters": 450,
+  "zoomCamera": {
+    "forwardMeters": 10,
+    "upMeters": 8
+  },
+  "torpedoes": {
+    "acoustic": {
+      "count": 16,
+      "speed": 50,
+      "minTurnRadius": 400,
+      "activation": 500,
+      "maxRangeMeters": 20000,
+      "damage": 80,
+      "minNoise": 2.7,
+      "radarConeDeg": 90
+    },
+    "wireGuided": {
+      "count": 12,
+      "speed": 45,
+      "minTurnRadius": 300,
+      "activation": 500,
+      "maxRangeMeters": 15000,
+      "damage": 80
+    },
+    "autonomous": {
+      "count": 12,
+      "speed": 55,
+      "minTurnRadius": 500,
+      "activation": 500,
+      "maxRangeMeters": 20000,
+      "damage": 80,
+      "radarRangeMeters": 10000,
+      "radarConeDeg": 60
+    }
+  },
+  "automaticDrone": {
+    "number": 3,
+    "speed": 200,
+    "altitude": 500,
+    "autonomy": 200,
+    "range": 3000,
+    "safeDistance": 1800
+  },
+  "manualDrone": {
+    "number": 2,
+    "speed": 300,
+    "altitude": 300,
+    "autonomy": 150,
+    "range": 2000
+  },
+  "antiAircraft": {
+    "ammunition": 100,
+    "range": 3000,
+    "damage": 1
+  },
+  "mineSurf": {
+    "number": 10,
+    "delay": 1,
+    "damage": 60,
+    "range": 60
+  },
+  "mineBottom": {
+    "number": 40,
+    "delay": 1,
+    "damage": 60,
+    "range": 60
+  },
+  "mineSuspended": {
+    "number": 40,
+    "delay": 1,
+    "damage": 60,
+    "range": 60
+  },
+  "ai": "default"
+}

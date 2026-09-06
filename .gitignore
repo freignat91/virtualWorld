@@ -1,0 +1,26 @@
+# Environnements et caches Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Sorties d'execution et d'entrainement
+logs/
+*.log
+*.log.*
+*.pid
+models_rl/
+
+# Certificats locaux et secrets
+certs/
+.env
+.env.*
+
+# Outils et systeme
+.pytest_cache/
+.coverage
+htmlcov/
+.idea/
+.vscode/
+.DS_Store
+node_modules/
