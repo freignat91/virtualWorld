@@ -1,10 +1,11 @@
-"""Évalue un modèle récurrent sur plusieurs cartes et adversaires BT."""
+"""Évalue un modèle récurrent sur plusieurs cartes et adversaires."""
 
 from __future__ import annotations
 
 import argparse
 import json
 from collections import Counter
+from pathlib import Path
 
 import numpy as np
 from sb3_contrib import RecurrentPPO
@@ -13,10 +14,12 @@ from rl_env import SubmarineDuelEnv
 
 
 def evaluate(model: RecurrentPPO, map_name: str, boat_type: str, opponent_ai: str,
-             episodes: int, seed: int) -> dict:
+             episodes: int, seed: int, opponent_pool_dir: str | None = None) -> dict:
     env = SubmarineDuelEnv(
         map_name=map_name,
         opponents=[{"boat_type": boat_type, "ai": opponent_ai, "weight": 1.0}],
+        opponent_pool_dir=opponent_pool_dir,
+        self_play_probability=1.0 if opponent_pool_dir else 0.0,
         seed=seed,
     )
     outcomes: Counter[str] = Counter()
@@ -45,8 +48,10 @@ def evaluate(model: RecurrentPPO, map_name: str, boat_type: str, opponent_ai: st
         env.close()
     return {
         "map": map_name,
-        "opponent_boat_type": boat_type,
-        "opponent_ai": opponent_ai,
+        "opponent_kind": "policy" if opponent_pool_dir else "bt",
+        "opponent_boat_type": "submarine" if opponent_pool_dir else boat_type,
+        "opponent_ai": None if opponent_pool_dir else opponent_ai,
+        "opponent_pool": opponent_pool_dir,
         "episodes": episodes,
         "wins": outcomes["win"],
         "losses": outcomes["loss"],
@@ -68,6 +73,9 @@ def main() -> None:
     parser.add_argument(
         "--opponents", default="submarine/autosub,destroyer/autodest",
         help="paires boat_type/ai séparées par des virgules")
+    parser.add_argument(
+        "--opponent-pools", default="",
+        help="répertoires de checkpoints adversaires séparés par des virgules")
     parser.add_argument("--episodes", type=int, default=100)
     parser.add_argument("--seed", type=int, default=10000)
     parser.add_argument("--device", default="auto")
@@ -82,6 +90,12 @@ def main() -> None:
                 boat_type, opponent_ai = "submarine", opponent
             results.append(evaluate(
                 model, map_name, boat_type, opponent_ai, args.episodes, args.seed))
+        for pool in filter(None, (value.strip() for value in args.opponent_pools.split(","))):
+            pool_path = Path(pool)
+            if not pool_path.is_dir() or not any(pool_path.glob("*.zip")):
+                parser.error(f"pool de modèles adversaires invalide: {pool}")
+            results.append(evaluate(
+                model, map_name, "submarine", "autosub", args.episodes, args.seed, pool))
     print(json.dumps(results, indent=2, ensure_ascii=False))
 
 
