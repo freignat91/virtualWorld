@@ -86,6 +86,21 @@ Pour arrêter le serveur :
 
 Les journaux du serveur sont écrits dans `logs/server.log` avec rotation.
 
+## Mise à jour d'un serveur
+
+Le script `update_server.sh` est conçu pour être lancé depuis la machine cible.
+Il met à jour la branche `main`, récupère par SSH les meilleurs modèles RL depuis
+la machine d'entraînement, vérifie leurs archives et les installe dans
+`models_rl/` :
+
+```bash
+./update_server.sh francois@192.168.1.20 /data/dev/opencode/virtualWorld
+```
+
+La connexion SSH de la cible vers la source doit être configurée. Le dépôt cible
+doit être sans modification suivie. Après la copie, redémarrer le serveur pour
+charger le nouveau code et vider le cache des modèles RL.
+
 ## Tests
 
 ```bash
@@ -95,8 +110,7 @@ Les journaux du serveur sont écrits dans `logs/server.log` avec rotation.
 ```
 
 Le dépôt ne possède pas encore de suite de tests navigateur automatisée. Les
-changements graphiques doivent être vérifiés manuellement sur ordinateur et sur
-mobile.
+changements graphiques doivent être vérifiés manuellement sur laptop ou desktop.
 
 ## Entraînement des bots
 

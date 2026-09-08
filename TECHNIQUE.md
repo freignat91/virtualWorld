@@ -899,4 +899,6 @@ venv/bin/python evaluate_ai.py \
 
 Dans la console du navigateur,
 `spawnRlBot("aidest_v3_scripted", false, "", "destroyer")` charge le meilleur
-checkpoint v3 compatible.
+checkpoint v3 compatible. Dans la fenêtre `Unités`, les boutons `Sub IA` et
+`Destroyer IA` chargent respectivement les meilleurs checkpoints de
+`aisub_v14_selfplay` et `aidest_v3_scripted`, dans l'équipe choisie.

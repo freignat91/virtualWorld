@@ -6842,6 +6842,8 @@ function spawnUnitFromPopup(useMyTeam) {
     switch (botsPopupSelectedAi) {
         case "autosub":  boatType = "submarine"; finalAi = "autosub"; break;
         case "autodest": boatType = "destroyer"; finalAi = "autodest"; break;
+        case "rlsub":    boatType = "submarine"; finalAi = "rl_aisub_v14_selfplay"; break;
+        case "rldest":   boatType = "destroyer"; finalAi = "rl_aidest_v3_scripted"; break;
         default: setBotsPopupStatus("Type inconnu."); return;
     }
     const payload = { boatType, ai: finalAi };
