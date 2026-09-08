@@ -94,12 +94,16 @@ la machine d'entraînement, vérifie leurs archives et les installe dans
 `models_rl/` :
 
 ```bash
-./update_server.sh francois@192.168.1.20 /data/dev/opencode/virtualWorld
+./update_server.sh
 ```
 
-La connexion SSH de la cible vers la source doit être configurée. Le dépôt cible
-doit être sans modification suivie. Après la copie, redémarrer le serveur pour
-charger le nouveau code et vider le cache des modèles RL.
+La source par défaut est
+`francois@192.168.1.20:/data/dev/opencode/virtualWorld`. La machine et le chemin
+peuvent être remplacés avec
+`./update_server.sh utilisateur@machine /autre/chemin`. La connexion SSH de la
+cible vers la source doit être configurée. Le dépôt cible doit être sans
+modification suivie. Après la copie, redémarrer le serveur pour charger le
+nouveau code et vider le cache des modèles RL.
 
 ## Tests
 

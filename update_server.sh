@@ -2,16 +2,17 @@
 set -euo pipefail
 
 usage() {
-    echo "Usage: $0 <utilisateur@machine-source> [repertoire-source]" >&2
+    echo "Usage: $0 [utilisateur@machine-source] [repertoire-source]" >&2
+    echo "Defaut: francois@192.168.1.20 /data/dev/opencode/virtualWorld" >&2
     echo "Exemple: $0 francois@192.168.1.20 /data/dev/opencode/virtualWorld" >&2
 }
 
-if [[ $# -lt 1 || $# -gt 2 ]]; then
+if [[ $# -gt 2 ]]; then
     usage
     exit 2
 fi
 
-SOURCE_HOST=$1
+SOURCE_HOST=${1:-francois@192.168.1.20}
 SOURCE_ROOT=${2:-/data/dev/opencode/virtualWorld}
 TARGET_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 BRANCH=${GIT_BRANCH:-main}
