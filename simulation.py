@@ -30,6 +30,8 @@ from debug_log import dlog
 
 UNIT_METERS_BOT = 10.0
 TORPEDO_CEILING_Y = -2.0 / UNIT_METERS_BOT  # -0.2 u (= -2 m)
+SEABED_FLOOR_Y = -(500 - 10) / UNIT_METERS_BOT
+MAX_WORLD_MINES = 1000
 # Atténuation du son qui traverse une thermocline : -80% par couche franchie
 # (facteur 0.2). Pour n couches : 0.2^n.
 THERMOCLINE_NOISE_FACTOR = 0.2
@@ -99,6 +101,18 @@ def boat_grenade_spec(boat: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "effectRangeMeters": g.get("effectRangeMeters", 200),
         "rangeMeters": g.get("rangeMeters", 8000),
     }
+
+
+MINE_KIND_TO_KEY = {
+    "surface": "mineSurf",
+    "bottom": "mineBottom",
+    "suspended": "mineSuspended",
+}
+
+
+def boat_mine_spec(boat: Dict[str, Any], kind: str) -> Optional[Dict[str, Any]]:
+    """Retourne les caractéristiques d'un type de mine disponible."""
+    return (boat or {}).get(MINE_KIND_TO_KEY.get(kind, "")) or None
 
 
 def mine_payload(mine: Dict[str, Any]) -> Dict[str, Any]:
@@ -1687,6 +1701,54 @@ class Sim:
                     continue
 
     # ===================== MINES =====================
+
+    def place_mine(self, sid: str, player: Dict[str, Any], kind: str,
+                   depth_m: float = 20.0) -> bool:
+        """Pose une mine à la position du bateau et consomme une munition."""
+        if len(self.mines) >= MAX_WORLD_MINES or kind not in MINE_KIND_TO_KEY:
+            return False
+        spec = boat_mine_spec(player.get("boat") or {}, kind)
+        ammo = self._legacy.mine_ammo.get(sid) or {}
+        if not spec or ammo.get(kind, 0) <= 0:
+            return False
+        pid = player["id"]
+        position = player.get("position") or {}
+        if kind == "surface":
+            mine_y = 0.0
+            selected_depth_m = None
+        elif kind == "bottom":
+            mine_y = SEABED_FLOOR_Y
+            selected_depth_m = None
+        else:
+            selected_depth_m = max(1.0, min(495.0, float(depth_m)))
+            mine_y = max(SEABED_FLOOR_Y, min(-0.1, -selected_depth_m / UNIT_METERS_BOT))
+        mid = self._legacy.next_mine_id.get(pid, 1)
+        self._legacy.next_mine_id[pid] = mid + 1
+        now = self.now()
+        mine = {
+            "ownerSid": sid,
+            "ownerId": pid,
+            "teamId": player.get("team_id"),
+            "mid": mid,
+            "kind": kind,
+            "x": float(position.get("x", 0.0)),
+            "y": mine_y,
+            "z": float(position.get("z", 0.0)),
+            "range": float(spec.get("range", 40)),
+            "damage": float(spec.get("damage", 60)),
+            "armed": False,
+            "armAt": now + float(spec.get("delay", 1) or 0) * 60.0,
+            "placedAt": now,
+            "depthMeters": selected_depth_m,
+            "revealedTeams": set(),
+        }
+        self.mines[(pid, mid)] = mine
+        ammo[kind] = max(0, ammo.get(kind, 0) - 1)
+        self._legacy.emit_mine_counts(sid)
+        payload = mine_payload(mine)
+        payload["teamId"] = mine["teamId"]
+        self.emit(ev_mod.MinePlaced(payload=payload))
+        return True
 
     def explode_server_mine(self, mine: Dict[str, Any], trigger_id: Optional[str] = None,
                             _chain_visited: Optional[set] = None) -> None:

@@ -309,7 +309,12 @@ socket.emit("mine_place", { kind: "surface" | "bottom" | "suspended", depthMeter
 - `bottom` : y = `SEABED_FLOOR_Y` (-49 u).
 - `suspended` : y calculé à partir de `depthMeters` (profondeur sous la surface en mètres, clampé 1–495).
 
-**Serveur `handle_mine_place`** : valide ammo + kind, position = position du bateau au moment du largage, alloue `mid` par tireur (`next_mine_id[pid]`), stocke dans `mines_server[(pid, mid)]` avec `armAt = now + delay × 60 s`, `armed = False`, `damage`, `range`. Broadcast `mine_placed`.
+**Serveur `handle_mine_place`** : valide l'identité et le payload, puis délègue à
+`simulation.Sim.place_mine()`. La simulation valide la limite mondiale, les
+munitions et le type, utilise la position du bateau, alloue `mid` par tireur,
+stocke la mine avec `armAt = now + delay × 60 s`, puis émet `mine_placed`. Cette
+même méthode autoritaire est utilisée par le serveur live et l'environnement
+headless RL.
 
 **Intent disarm** :
 ```js
@@ -317,12 +322,12 @@ socket.emit("mine_disarm", { ownerId, mid });
 ```
 Conditions : être le poseur ET à ≤ 200 m de la mine. La munition est restituée, broadcast `mine_dead`.
 
-**`update_server_mines(dt, world)` dans `bot_ticker`** :
+**`Sim.update_server_mines(dt, world)` dans la boucle de simulation** :
 - Armement : si `now >= armAt`, `armed = True` + emit `mine_armed`.
 - Détection bateaux dans le rayon (distance horizontale uniquement). Logique d'attente : la mine mémorise la **distance min** atteinte par chaque bateau dans la zone (`m["watch"][pid]`). Tant que le bateau se rapproche, rien. Dès qu'il commence à s'éloigner (distance > min précédent + EPS), la mine **explose** et le bateau est crédité comme déclencheur. Si le bateau quitte la zone, son entrée est nettoyée.
 - Pas d'autopilote, pas de mouvement de la mine.
 
-**`explode_server_mine(mine, trigger_id)`** :
+**`Sim.explode_server_mine(mine, trigger_id)`** :
 - Émet `mine_exploded { ownerId, mid, kind, x, y, z, range }` puis `mine_dead`.
 - Splash damage proportionnel : `damage × (1.0 - 0.5 × dist/range)` (1×damage au centre, 0.5×damage à `range`). Itère humains+bots, distance horizontale. Applique via `apply_player_damage` / `bot_apply_damage`. `attacker_id = trigger_id` (ou `ownerId` si pas de trigger).
 - **Chaîne d'explosions** : toutes les mines armées dans le rayon de cette explosion sont déclenchées en cascade (`_chain_visited` évite les boucles infinies).
@@ -600,9 +605,10 @@ Les `*_count(s)` incluent désormais un champ `bsid` (`null` pour le bateau prim
 - Handlers : `mine_place`, `mine_disarm`.
 - `boat_mine_spec(boat, kind)` — lookup spec.
 - `init_mine_ammo_for_sid` / `emit_mine_counts`.
-- `update_server_mines(dt, world)` — armement + détection bateaux par CPA.
-- `explode_server_mine(mine, trigger_id, _chain_visited)` — splash proportionnel + chaîne d'explosions.
-- `_mine_payload(mine)` — filtre pour broadcast.
+- `Sim.place_mine(sid, player, kind, depth_m)` — validation et pose autoritaire.
+- `Sim.update_server_mines(dt, world)` — armement + détection bateaux par CPA.
+- `Sim.explode_server_mine(mine, trigger_id, _chain_visited)` — splash proportionnel + chaîne d'explosions.
+- `simulation.mine_payload(mine)` — filtre pour broadcast.
 
 **Multi-bateaux humains**
 - Handlers : `add_player_boat`, `set_active_boat`.
@@ -738,11 +744,14 @@ Les `*_count(s)` incluent désormais un champ `bsid` (`null` pour le bateau prim
 | serveur | `GRENADE_GRAVITY` | 18 | m/s² |
 | serveur | `DRONE_DISCOVER_RADIUS_M` | 3000 | m |
 | serveur | `DRONE_RECOVERY_DISTANCE_U` | 0.5 | u |
-## Entraînement RL des sous-marins
+## Entraînement RL
 
-Le pipeline `aisub_v14` entraîne un sous-marin en duel 1v1 sans serveur Flask.
-Il réutilise directement `simulation.Sim` grâce à `headless.py` : les règles de
-torpilles, dégâts, sonar et leurres sont donc celles du jeu autoritaire.
+Le pipeline entraîne des sous-marins et des destroyers en duel 1v1 sans serveur
+Flask. Il réutilise directement `simulation.Sim` grâce à `headless.py` : les
+règles d'armement, de dégâts, de sonar et de leurres sont donc celles du jeu
+autoritaire. `TRAINING_RL.md` décrit les commandes et le diagnostic en détail.
+
+La configuration `aisub_v14` entraîne un sous-marin.
 Les adversaires BT sont configurés par coque, IA et poids. La politique reste
 toujours un sous-marin ; elle affronte à parts égales `submarine/autosub` et
 `destroyer/autodest`. Les impacts du canon des destroyers sont résolus selon
@@ -801,3 +810,93 @@ Dans la console du navigateur, `spawnRlBot("aisub_v14_selfplay")` charge d'abord
 puis `policy_final.zip` si aucun meilleur modèle n'existe. La forme des espaces
 d'observation et d'action est validée au chargement ; un échec replie le bot sur
 `autosub` et écrit la cause dans le journal serveur.
+
+### Phase 3 : politique destroyer
+
+La configuration `aidest_v1` entraîne une politique distincte pour le destroyer.
+L'observation `destroyer_duel_v1` contient 36 valeurs : état de navigation,
+intégrité, bruit, munitions et cooldowns des torpilles, du canon, des grenades,
+des leurres et du sonar actif, dernier contact, menace de torpille et huit rayons
+anticollision. L'action `MultiDiscrete([5, 5, 5, 2, 2])` contrôle le gouvernail,
+la vitesse, l'arme (`aucune`, `acoustique`, `autonome`, `canon`, `grenade`), le
+leurre et le sonar actif.
+
+La phase scripted oppose le destroyer à parts égales au meilleur sous-marin RL
+gelé et à un mélange équilibré de `submarine/autosub` et
+`destroyer/autodest` :
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+  venv/bin/python train_ai.py --config configs/aidest_v1.json \
+  --stage scripted --run-name aidest_v1_scripted --device cuda
+```
+
+Le nombre de threads est limité car chaque worker charge la politique adverse
+sur CPU. Après évaluation, la ligue destroyer peut reprendre le meilleur modèle
+scripted avec `--stage selfplay --run-name aidest_v1_selfplay --resume <modele>`.
+Les snapshots de cette ligue restent des destroyers, tandis que le sous-marin RL
+gelé demeure dans le mélange d'adversaires.
+
+L'évaluation et le chargement live précisent la coque contrôlée :
+
+```bash
+venv/bin/python evaluate_ai.py models_rl/aidest_v1_scripted/best/best_model.zip \
+  --agent-boat-type destroyer --opponents submarine/autosub,destroyer/autodest
+```
+
+Dans la console du navigateur,
+`spawnRlBot("aidest_v1_scripted", false, "", "destroyer")` charge le destroyer
+RL. Un modèle incompatible replie désormais vers le BT correspondant à la coque
+(`autosub` ou `autodest`).
+
+#### Raffinement anti-sous-marin
+
+`aidest_v2` reprend le meilleur checkpoint v1 et cible uniquement `autosub` et
+le meilleur sous-marin RL, à parts égales et aux distances complètes. Les
+commandes d'arme et de sonar maintenues pendant leur cooldown sont traitées
+comme des attentes, sans pénalité répétée. Le taux d'apprentissage et l'entropie
+sont réduits pour préserver les acquis du checkpoint :
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+  venv/bin/python train_ai.py --config configs/aidest_v2.json \
+  --stage scripted --run-name aidest_v2_scripted \
+  --resume models_rl/aidest_v1_scripted/best/best_model.zip --device cuda
+```
+
+#### Mines secondaires et télémétrie
+
+`destroyer_duel_v2` étend l'observation à 40 valeurs avec les trois stocks de
+mines et leur cooldown. L'action devient
+`MultiDiscrete([5, 5, 5, 2, 2, 4])` ; la dernière valeur choisit `aucune`,
+`surface`, `fond` ou `suspendue`. Une grenade demandée dans la même décision est
+toujours prioritaire et empêche la pose de mine. Une mine coûte quatre fois plus
+qu'un tir dans `aidest_v3`, afin qu'elle reste une option tactique secondaire.
+
+Le placement est désormais exécuté par `simulation.Sim.place_mine()` en mode
+serveur comme en headless. Les évaluations détaillent séparément torpilles,
+canon, grenades et chaque type de mine. Le nouvel espace étant incompatible avec
+les checkpoints destroyer précédents, v3 démarre une nouvelle politique :
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+  venv/bin/python train_ai.py --config configs/aidest_v3.json \
+  --stage scripted --run-name aidest_v3_scripted --device cuda
+```
+
+Le run v3 affronte `submarine/autosub` et le meilleur sous-marin RL gelé avec
+une probabilité de 50 % chacun. Son curriculum étend progressivement les
+distances de 600-1 200 m vers 600-2 000 m. L'évaluation indépendante couvre les
+deux familles d'adversaires :
+
+```bash
+venv/bin/python evaluate_ai.py \
+  models_rl/aidest_v3_scripted/best/best_model.zip \
+  --agent-boat-type destroyer --opponents submarine/autosub \
+  --opponent-pools models_rl/aisub_v14_selfplay/best \
+  --opponent-pool-boat-type submarine --episodes 100
+```
+
+Dans la console du navigateur,
+`spawnRlBot("aidest_v3_scripted", false, "", "destroyer")` charge le meilleur
+checkpoint v3 compatible.

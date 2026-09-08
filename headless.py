@@ -258,6 +258,7 @@ class HeadlessRunner:
             "depth_target_y": spawn_y, "next_depth_change_at": 20.0,
             "next_detect_at": 0.0, "next_torpedo_at": 0.0,
             "next_cannon_at": 0.0, "next_aa_at": 0.0,
+            "next_grenade_at": 0.0, "next_mine_at": 0.0,
             "last_detected_ids": set(), "last_emit": 0.0,
             "waypoint": None, "integrity": 100.0,
             "ai_name": selected_ai, "ai_tree": ai_tree,

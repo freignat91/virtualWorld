@@ -1,4 +1,4 @@
-"""Environnement Gymnasium pour les duels de sous-marins."""
+"""Environnement Gymnasium pour les duels de bateaux RL."""
 
 from __future__ import annotations
 
@@ -13,7 +13,13 @@ from gymnasium import spaces
 
 import geometry
 from headless import HeadlessRunner
-from rl_control import ACTION_NVECS, OBS_DIM, apply_action, build_observation
+from rl_control import (
+    apply_action,
+    build_observation,
+    contact_detected_index,
+    control_spec,
+    control_version_for_spaces,
+)
 
 
 PHYSICS_DT = 0.05
@@ -28,23 +34,32 @@ DEFAULT_REWARD = {
     "weapon_invalid": -0.005,
     "lure_dropped": -0.01,
     "lure_invalid": -0.002,
+    "sonar_pinged": -0.01,
+    "sonar_invalid": -0.002,
+    "mine_placed": -0.05,
+    "mine_invalid": -0.005,
     "new_contact": 0.01,
 }
 
 
 class SubmarineDuelEnv(gym.Env):
-    """Duel 1v1 : l'agent externe affronte un BT ou une politique historique."""
+    """Duel 1v1 : un agent externe affronte un BT ou une politique gelée."""
 
     metadata = {"render_modes": []}
 
     def __init__(
         self,
         map_name: str = "combats",
+        agent_boat_type: str = "submarine",
+        control_version: Optional[str] = None,
         opponent_ai: str = "autosub",
         opponent_ais: Optional[Sequence[str]] = None,
         opponents: Optional[Sequence[Dict[str, Any]]] = None,
         opponent_pool_dir: Optional[str] = None,
         self_play_probability: float = 0.0,
+        fixed_opponent_pool_dir: Optional[str] = None,
+        fixed_opponent_boat_type: str = "submarine",
+        fixed_policy_probability: float = 0.0,
         max_physics_steps: int = 6000,
         frame_skip: int = 5,
         spawn_min_m: float = 600.0,
@@ -57,6 +72,9 @@ class SubmarineDuelEnv(gym.Env):
     ) -> None:
         super().__init__()
         self.map_name = map_name
+        self.agent_boat_type = agent_boat_type
+        self.control_version, observation_dim, action_nvecs = control_spec(
+            agent_boat_type, control_version)
         if opponents is None:
             names = tuple(opponent_ais or (opponent_ai,))
             opponents = tuple(
@@ -82,6 +100,14 @@ class SubmarineDuelEnv(gym.Env):
         self._opponent_weights = tuple(item["weight"] for item in self.opponents)
         self.opponent_pool_dir = Path(opponent_pool_dir) if opponent_pool_dir else None
         self.self_play_probability = max(0.0, min(1.0, self_play_probability))
+        self.fixed_opponent_pool_dir = (
+            Path(fixed_opponent_pool_dir) if fixed_opponent_pool_dir else None)
+        self.fixed_opponent_boat_type = fixed_opponent_boat_type
+        control_spec(fixed_opponent_boat_type)
+        self.fixed_policy_probability = max(0.0, min(1.0, fixed_policy_probability))
+        if self.fixed_opponent_pool_dir is not None and not any(
+                self.fixed_opponent_pool_dir.glob("*.zip")):
+            raise ValueError(f"pool de politiques vide: {self.fixed_opponent_pool_dir}")
         self.max_physics_steps = max(1, int(max_physics_steps))
         self.frame_skip = max(1, int(frame_skip))
         self.spawn_min_m = float(spawn_min_m)
@@ -98,12 +124,14 @@ class SubmarineDuelEnv(gym.Env):
                 raise ValueError(f"récompenses inconnues: {sorted(unknown)}")
             self.reward_cfg.update({key: float(value) for key, value in reward.items()})
         self.base_seed = int(seed)
-        self.action_space = spaces.MultiDiscrete(ACTION_NVECS)
-        self.observation_space = spaces.Box(-1.0, 1.0, shape=(OBS_DIM,), dtype=np.float32)
+        self.action_space = spaces.MultiDiscrete(action_nvecs)
+        self.observation_space = spaces.Box(
+            -1.0, 1.0, shape=(observation_dim,), dtype=np.float32)
         self.runner = HeadlessRunner(map_name=map_name, seed=seed)
         self.agent_sid: Optional[str] = None
         self.opponent_sid: Optional[str] = None
         self._opponent_model = None
+        self._opponent_control_version: Optional[str] = None
         self._opponent_state = None
         self._opponent_episode_start = True
         self._model_cache: OrderedDict[Path, Any] = OrderedDict()
@@ -147,31 +175,30 @@ class SubmarineDuelEnv(gym.Env):
             return (ax, az), (ox, oz)
         raise RuntimeError("impossible de trouver deux positions de duel valides")
 
-    def _pool_paths(self) -> Sequence[Path]:
-        if self.opponent_pool_dir is None or not self.opponent_pool_dir.exists():
+    @staticmethod
+    def _pool_paths(directory: Optional[Path]) -> Sequence[Path]:
+        if directory is None or not directory.exists():
             return ()
         return tuple(
-            path for path in sorted(self.opponent_pool_dir.glob("*.zip"))
+            path for path in sorted(directory.glob("*.zip"))
             if not path.name.startswith(".")
         )
 
-    def _load_opponent(self, path: Path):
+    def _load_opponent(self, path: Path, boat_type: str):
         cached = self._model_cache.get(path)
-        if cached is not None:
-            self._model_cache.move_to_end(path)
-            return cached
-        from sb3_contrib import RecurrentPPO
+        if cached is None:
+            from sb3_contrib import RecurrentPPO
 
-        model = RecurrentPPO.load(path, device="cpu")
-        if tuple(model.observation_space.shape or ()) != (OBS_DIM,):
-            raise ValueError(f"observation incompatible dans {path}")
-        nvec = tuple(int(value) for value in getattr(model.action_space, "nvec", ()))
-        if nvec != tuple(int(value) for value in ACTION_NVECS):
-            raise ValueError(f"actions incompatibles dans {path}")
-        self._model_cache[path] = model
-        while len(self._model_cache) > 3:
-            self._model_cache.popitem(last=False)
-        return model
+            cached = RecurrentPPO.load(path, device="cpu")
+            self._model_cache[path] = cached
+            while len(self._model_cache) > 3:
+                self._model_cache.popitem(last=False)
+        else:
+            self._model_cache.move_to_end(path)
+        observation_dim = int((cached.observation_space.shape or (0,))[0])
+        nvec = tuple(int(value) for value in getattr(cached.action_space, "nvec", ()))
+        version = control_version_for_spaces(boat_type, observation_dim, nvec)
+        return cached, version
 
     def reset(self, *, seed: Optional[int] = None,
               options: Optional[Dict[str, Any]] = None):
@@ -182,23 +209,47 @@ class SubmarineDuelEnv(gym.Env):
         self.runner.reset(seed=seed)
         self._physics_steps = 0
         self._opponent_model = None
+        self._opponent_control_version = None
         self._opponent_state = None
         self._opponent_episode_start = True
-        self._stats = {"weapons": 0, "invalid_weapons": 0, "lures": 0, "contacts": 0}
+        self._stats = {
+            "weapons": 0, "invalid_weapons": 0,
+            "lures": 0, "sonars": 0, "invalid_sonars": 0, "contacts": 0,
+            "acoustic_torpedoes": 0, "autonomous_torpedoes": 0,
+            "cannon_shots": 0, "grenades": 0,
+            "mines": 0, "invalid_mines": 0,
+            "surface_mines": 0, "bottom_mines": 0, "suspended_mines": 0,
+        }
         agent_pos, opponent_pos = self._spawn_pair()
 
-        pool = self._pool_paths()
+        pool = self._pool_paths(self.opponent_pool_dir)
+        fixed_pool = self._pool_paths(self.fixed_opponent_pool_dir)
         use_self_play = bool(pool) and self.runner.random.random() < self.self_play_probability
         if use_self_play:
             path = self.runner.random.choice(pool)
-            self._opponent_model = self._load_opponent(path)
+            opponent_boat_type = self.agent_boat_type
+            self._opponent_model, self._opponent_control_version = self._load_opponent(
+                path, opponent_boat_type)
             opponent_external = True
-            opponent_boat_type = "submarine"
             opponent_ai = None
             self._opponent_info = {
-                "opponent": f"policy:submarine/{path.name}",
+                "opponent": f"policy:{opponent_boat_type}/{path.name}",
                 "opponent_kind": "policy",
-                "opponent_boat_type": "submarine",
+                "opponent_boat_type": opponent_boat_type,
+                "opponent_ai": None,
+            }
+        elif (fixed_pool
+              and self.runner.random.random() < self.fixed_policy_probability):
+            path = self.runner.random.choice(fixed_pool)
+            opponent_boat_type = self.fixed_opponent_boat_type
+            self._opponent_model, self._opponent_control_version = self._load_opponent(
+                path, opponent_boat_type)
+            opponent_external = True
+            opponent_ai = None
+            self._opponent_info = {
+                "opponent": f"policy:{opponent_boat_type}/{path.name}",
+                "opponent_kind": "policy",
+                "opponent_boat_type": opponent_boat_type,
                 "opponent_ai": None,
             }
         else:
@@ -215,16 +266,20 @@ class SubmarineDuelEnv(gym.Env):
             }
 
         self.agent_sid = self.runner.spawn_bot(
-            boat_type="submarine", external_control=True, ai=None, position=agent_pos,
+            boat_type=self.agent_boat_type, external_control=True, ai=None, position=agent_pos,
             rotation=self.runner.random.uniform(0.0, math.tau), team_id="agent")
         self.opponent_sid = self.runner.spawn_bot(
             boat_type=opponent_boat_type, external_control=opponent_external,
             ai=opponent_ai, position=opponent_pos,
             rotation=self.runner.random.uniform(0.0, math.tau), team_id="opponent")
+        self._agent()["rl_control_version"] = self.control_version
+        if self._opponent_control_version is not None:
+            self._opponent()["rl_control_version"] = self._opponent_control_version
         self._previous_agent_hp = 100.0
         self._previous_opponent_hp = 100.0
         observation = build_observation(self._agent(), self.runner.sim, self.runner.world)
-        self._had_contact = bool(observation[10] > 0.5)
+        self._had_contact = bool(observation[
+            contact_detected_index(self.agent_boat_type, self.control_version)] > 0.5)
         return observation, dict(self._opponent_info)
 
     def _agent(self) -> Dict[str, Any]:
@@ -257,10 +312,28 @@ class SubmarineDuelEnv(gym.Env):
         self._predict_opponent()
         if result["weapon_fired"]:
             self._stats["weapons"] += 1
+            weapon_kind = result.get("weapon_kind")
+            weapon_stat = {
+                "acoustic": "acoustic_torpedoes",
+                "autonomous": "autonomous_torpedoes",
+                "cannon": "cannon_shots",
+                "grenade": "grenades",
+            }.get(weapon_kind)
+            if weapon_stat:
+                self._stats[weapon_stat] += 1
         if result["weapon_invalid"]:
             self._stats["invalid_weapons"] += 1
         if result["lure_dropped"]:
             self._stats["lures"] += 1
+        if result["sonar_pinged"]:
+            self._stats["sonars"] += 1
+        if result["sonar_invalid"]:
+            self._stats["invalid_sonars"] += 1
+        if result["mine_placed"]:
+            self._stats["mines"] += 1
+            self._stats[f"{result['mine_kind']}_mines"] += 1
+        if result["mine_invalid"]:
+            self._stats["invalid_mines"] += 1
 
         for _ in range(self.frame_skip):
             self.runner.step(PHYSICS_DT)
@@ -281,6 +354,10 @@ class SubmarineDuelEnv(gym.Env):
         reward += self.reward_cfg["weapon_invalid"] if result["weapon_invalid"] else 0.0
         reward += self.reward_cfg["lure_dropped"] if result["lure_dropped"] else 0.0
         reward += self.reward_cfg["lure_invalid"] if result["lure_invalid"] else 0.0
+        reward += self.reward_cfg["sonar_pinged"] if result["sonar_pinged"] else 0.0
+        reward += self.reward_cfg["sonar_invalid"] if result["sonar_invalid"] else 0.0
+        reward += self.reward_cfg["mine_placed"] if result["mine_placed"] else 0.0
+        reward += self.reward_cfg["mine_invalid"] if result["mine_invalid"] else 0.0
         self._previous_agent_hp = agent_hp
         self._previous_opponent_hp = opponent_hp
 
@@ -289,8 +366,9 @@ class SubmarineDuelEnv(gym.Env):
         if agent_alive:
             observation = build_observation(self.runner.legacy.bots[self.agent_sid], self.runner.sim, self.runner.world)
         else:
-            observation = np.zeros(OBS_DIM, dtype=np.float32)
-        has_contact = bool(observation[10] > 0.5)
+            observation = np.zeros(self.observation_space.shape, dtype=np.float32)
+        has_contact = bool(observation[
+            contact_detected_index(self.agent_boat_type, self.control_version)] > 0.5)
         if has_contact and not self._had_contact:
             reward += self.reward_cfg["new_contact"]
             self._stats["contacts"] += 1

@@ -8,7 +8,7 @@ from typing import Any, Dict
 
 import numpy as np
 
-from rl_control import ACTION_NVECS, OBS_DIM, apply_action, build_observation
+from rl_control import apply_action, build_observation, control_version_for_spaces
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -40,19 +40,16 @@ def resolve_model_path(ai_name: str) -> Path:
     raise FileNotFoundError(f"aucun modèle trouvé pour {ai_name}: {candidates}")
 
 
-def load_model(ai_name: str):
+def load_model(ai_name: str, boat_type: str = "submarine"):
     path = resolve_model_path(ai_name)
     model = _MODEL_CACHE.get(path)
-    if model is not None:
-        return model
-    from sb3_contrib import RecurrentPPO
+    if model is None:
+        from sb3_contrib import RecurrentPPO
 
-    model = RecurrentPPO.load(path, device="cpu")
-    if tuple(model.observation_space.shape or ()) != (OBS_DIM,):
-        raise ValueError(f"observation incompatible dans {path}")
+        model = RecurrentPPO.load(path, device="cpu")
+    observation_dim = int((model.observation_space.shape or (0,))[0])
     model_nvec = tuple(int(value) for value in getattr(model.action_space, "nvec", ()))
-    if model_nvec != tuple(int(value) for value in ACTION_NVECS):
-        raise ValueError(f"actions incompatibles dans {path}")
+    control_version_for_spaces(boat_type, observation_dim, model_nvec)
     _MODEL_CACHE[path] = model
     logging.info("[rl] modèle chargé: %s", path)
     return model
@@ -87,7 +84,13 @@ class RuntimeController:
 def attach_controller(bot: Dict[str, Any], ai_name: str) -> None:
     bot["ai_tree"] = None
     bot["external_control"] = True
-    bot["rl_controller"] = RuntimeController(load_model(ai_name))
+    boat_type = bot.get("boatType", "submarine")
+    model = load_model(ai_name, boat_type)
+    observation_dim = int((model.observation_space.shape or (0,))[0])
+    model_nvec = tuple(int(value) for value in getattr(model.action_space, "nvec", ()))
+    bot["rl_control_version"] = control_version_for_spaces(
+        boat_type, observation_dim, model_nvec)
+    bot["rl_controller"] = RuntimeController(model)
     bot["control_target_rudder"] = 0.0
     bot["control_target_speed_ratio"] = 0.0
     bot["control_target_depth_y"] = bot["position"].get("y", 0.0)

@@ -15,7 +15,7 @@ from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.utils import get_schedule_fn
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecMonitor
 
-from rl_control import OBSERVATION_VERSION
+from rl_control import control_spec
 from rl_env import SubmarineDuelEnv
 
 
@@ -80,13 +80,25 @@ def make_env(config: Dict[str, Any], *, seed: int, stage: str,
 
     def factory() -> SubmarineDuelEnv:
         opponent_cfg = eval_cfg if evaluation else env_cfg
+        fixed_policy = opponent_cfg.get("fixed_opponent_policy") or {}
+        fixed_pool = fixed_policy.get("pool_dir")
+        if fixed_pool:
+            fixed_pool_path = Path(fixed_pool)
+            if not fixed_pool_path.is_absolute():
+                fixed_pool_path = BASE_DIR / fixed_pool_path
+            fixed_pool = str(fixed_pool_path)
         return SubmarineDuelEnv(
             map_name=eval_cfg["map_name"] if evaluation else env_cfg["map_name"],
+            agent_boat_type=env_cfg.get("agent_boat_type", "submarine"),
+            control_version=env_cfg.get("control_version"),
             opponents=opponent_cfg.get("opponents"),
             opponent_ais=opponent_cfg.get("opponent_ais"),
             opponent_pool_dir=None if evaluation or stage == "scripted" else str(league_dir),
             self_play_probability=0.0 if evaluation or stage == "scripted" else float(
                 config["league"]["self_play_probability"]),
+            fixed_opponent_pool_dir=fixed_pool,
+            fixed_opponent_boat_type=fixed_policy.get("boat_type", "submarine"),
+            fixed_policy_probability=float(fixed_policy.get("probability", 0.0)),
             max_physics_steps=int(env_cfg["max_physics_steps"]),
             frame_skip=int(env_cfg["frame_skip"]),
             spawn_min_m=float(env_cfg["spawn_min_m"]),
@@ -152,7 +164,9 @@ def main() -> None:
     effective = dict(config)
     effective["stage"] = args.stage
     effective["resume"] = args.resume
-    effective["observation_version"] = OBSERVATION_VERSION
+    effective["observation_version"] = control_spec(
+        config["env"].get("agent_boat_type", "submarine"),
+        config["env"].get("control_version"))[0]
     effective["curriculum_decisions_per_env"] = curriculum_decisions
     with (output_dir / "effective_config.json").open("w", encoding="utf-8") as handle:
         json.dump(effective, handle, indent=2, ensure_ascii=True)

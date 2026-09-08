@@ -6859,15 +6859,18 @@ function spawnUnitFromPopup(useMyTeam) {
     socket.emit("spawn_bot", payload);
     setBotsPopupStatus(`Bot ${botsPopupSelectedAi} ajouté à l'équipe ${payload.team_name}`);
 }
-function spawnRlBot(runName, useMyTeam = false, checkpoint = "") {
+function spawnRlBot(runName, useMyTeam = false, checkpoint = "", boatType = "submarine") {
     if (!/^[a-zA-Z0-9_.-]+$/.test(runName) || (checkpoint && !/^[a-zA-Z0-9_.-]+$/.test(checkpoint))) {
         throw new Error("Nom de modèle RL invalide");
+    }
+    if (!["submarine", "destroyer"].includes(boatType)) {
+        throw new Error("Type de bateau RL invalide");
     }
     if (useMyTeam && !localTeamId) {
         throw new Error("Pas d'équipe locale connue");
     }
     const ai = `rl_${runName}${checkpoint ? `:${checkpoint}` : ""}`;
-    const payload = { boatType: "submarine", ai };
+    const payload = { boatType, ai };
     if (useMyTeam) {
         payload.team_id = localTeamId;
         payload.team_name = selectedTeamName || localTeamId;

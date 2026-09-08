@@ -500,7 +500,6 @@ MAX_BOTS = 32
 MAX_PLAYER_BOATS = 8
 MAX_WORLD_SONAR_BEACONS = 256
 MAX_WORLD_PASSIVE_BEACONS = 256
-MAX_WORLD_MINES = 1000
 
 
 def load_world():
@@ -2341,64 +2340,13 @@ def handle_mine_place(data):
     acting_sid = resolve_acting_sid(request.sid, data)
     if acting_sid not in players:
         return
-    if len(mines_server) >= MAX_WORLD_MINES:
-        logging.warning(f"[mine_place] limite globale atteinte ({MAX_WORLD_MINES})")
-        return
     kind = (data or {}).get("kind") or ""
-    if kind not in ("surface", "bottom", "suspended"):
-        return
-    p = players[acting_sid]
-    boat = p.get("boat") or {}
-    spec = boat_mine_spec(boat, kind)
-    if not spec:
-        return
-    ammo = mine_ammo.get(acting_sid) or {}
-    if ammo.get(kind, 0) <= 0:
-        return
-    pid = p["id"]
-    pos = p.get("position") or {}
-    bx = float(pos.get("x", 0))
-    bz = float(pos.get("z", 0))
-    # Profondeur cible.
-    if kind == "surface":
-        my = 0.0
-    elif kind == "bottom":
-        my = SEABED_FLOOR_Y
-    else:  # suspended : depthMeters = profondeur de la mine sous la surface (m)
-        try:
-            depth_m = float((data or {}).get("depthMeters", 20))
-        except (TypeError, ValueError):
-            depth_m = 20.0
-        depth_m = max(1.0, min(495.0, depth_m))
-        my = -depth_m / UNIT_METERS_BOT
-        if my > -0.1:
-            my = -0.1
-        if my < SEABED_FLOOR_Y:
-            my = SEABED_FLOOR_Y
-    mid = next_mine_id.get(pid, 1)
-    next_mine_id[pid] = mid + 1
-    delay_min = float(spec.get("delay", 1) or 0)
-    mine = {
-        "ownerSid": acting_sid,
-        "ownerId": pid,
-        "teamId": p.get("team_id"),
-        "mid": mid,
-        "kind": kind,
-        "x": bx, "y": my, "z": bz,
-        "range": float(spec.get("range", 40)),
-        "damage": float(spec.get("damage", 60)),
-        "armed": False,
-        "armAt": time.time() + delay_min * 60.0,
-        "placedAt": time.time(),
-        "depthMeters": depth_m if kind == "suspended" else None,
-        "revealedTeams": set(),
-    }
-    mines_server[(pid, mid)] = mine
-    ammo[kind] = max(0, ammo.get(kind, 0) - 1)
-    emit_mine_counts(acting_sid)
-    payload = simulation.mine_payload(mine)
-    payload["teamId"] = mine["teamId"]
-    socketio.emit("mine_placed", payload)
+    try:
+        depth_m = float((data or {}).get("depthMeters", 20.0))
+    except (TypeError, ValueError):
+        depth_m = 20.0
+    if not sim.place_mine(acting_sid, players[acting_sid], kind, depth_m):
+        logging.debug("[mine_place] pose refusée pour %s (%s)", acting_sid, kind)
 
 
 _mine_payload = simulation.mine_payload
@@ -2651,9 +2599,10 @@ def spawn_bot(boat_type, ai_name=None, team_id=None, team_name=None):
             from rl_runtime import attach_controller
             attach_controller(bot, selected_ai)
         except Exception:
-            logging.exception("[rl] impossible de charger %s, repli sur autosub", selected_ai)
-            bot["ai_name"] = "autosub"
-            bot["ai_tree"] = bot_ai.load_ai("autosub")
+            fallback_ai = "autodest" if boat_type == "destroyer" else "autosub"
+            logging.exception("[rl] impossible de charger %s, repli sur %s", selected_ai, fallback_ai)
+            bot["ai_name"] = fallback_ai
+            bot["ai_tree"] = bot_ai.load_ai(fallback_ai)
             bot["external_control"] = False
             bot.pop("rl_controller", None)
     socketio.emit("player_joined", players[sid])
@@ -3082,22 +3031,6 @@ def emit_lure_count(sid):
         "count": lure_ammo.get(sid, 0),
         "bsid": _bsid_for(sid),
     }, to=target)
-
-
-# ===================== MINES (compteurs munitions) =====================
-
-MINE_KIND_TO_KEY = {
-    "surface": "mineSurf",
-    "bottom": "mineBottom",
-    "suspended": "mineSuspended",
-}
-
-
-def boat_mine_spec(boat, kind):
-    """Renvoie le dict de spec mine pour un kind donné, ou None."""
-    if not boat:
-        return None
-    return boat.get(MINE_KIND_TO_KEY.get(kind, "")) or None
 
 
 def init_mine_ammo_for_sid(sid):
