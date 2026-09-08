@@ -51,13 +51,12 @@ cd virtualWorld
 python3 -m venv .venv
 .venv/bin/pip install --upgrade pip
 .venv/bin/pip install -r requirements.txt
-mkdir -p certs
-openssl req -x509 -newkey rsa:4096 -nodes \
-  -keyout certs/key.pem -out certs/cert.pem -days 365 \
-  -subj "/CN=localhost"
 ```
 
-Les certificats sont locaux et exclus de Git.
+Au premier lancement, `start.sh` génère automatiquement un certificat HTTPS
+auto-signé valable dix ans si `certs/cert.pem` et `certs/key.pem` sont absents.
+Les certificats restent locaux et exclus de Git. Une paire existante n'est
+jamais remplacée automatiquement.
 
 ## Lancement
 

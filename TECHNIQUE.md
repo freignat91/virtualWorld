@@ -22,7 +22,10 @@ logs/
   server.log     RotatingFileHandler 10 MB × 3 (basicConfig INFO)
 ```
 
-Lancement : `./start.sh` (logfilter active). Le serveur tourne en HTTPS sur `config.server.port` (défaut 7000).
+Lancement : `./start.sh` (logfilter actif). Le serveur tourne en HTTPS sur
+`config.server.port` (défaut 7000). Si la paire `certs/cert.pem` et
+`certs/key.pem` est absente, le script génère avant le démarrage un certificat
+auto-signé contenant le nom d'hôte et les adresses IP locales.
 
 ## Modèle réseau
 
