@@ -25,7 +25,9 @@ logs/
 Lancement : `./start.sh` (logfilter actif). Le serveur tourne en HTTPS sur
 `config.server.port` (défaut 7000). Si la paire `certs/cert.pem` et
 `certs/key.pem` est absente, le script génère avant le démarrage un certificat
-auto-signé contenant le nom d'hôte et les adresses IP locales.
+auto-signé contenant le nom d'hôte et les adresses IP locales. La clé Flask est
+lue depuis `VIRTUALWORLD_SECRET_KEY` (32 caractères minimum) ou générée
+aléatoirement pour la durée du processus si cette variable est absente.
 
 ## Modèle réseau
 

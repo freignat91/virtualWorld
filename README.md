@@ -58,6 +58,12 @@ auto-signé valable dix ans si `certs/cert.pem` et `certs/key.pem` sont absents.
 Les certificats restent locaux et exclus de Git. Une paire existante n'est
 jamais remplacée automatiquement.
 
+La clé Flask n'est pas stockée dans le dépôt. La variable d'environnement
+`VIRTUALWORLD_SECRET_KEY` peut fournir une valeur stable d'au moins 32
+caractères. Si elle est absente, le serveur génère une clé aléatoire temporaire
+à chaque démarrage ; cela suffit tant qu'aucune session Flask persistante n'est
+utilisée.
+
 ## Lancement
 
 ```bash

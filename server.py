@@ -6,6 +6,7 @@ import json
 import math
 import os
 import re
+import secrets
 import time
 import uuid
 import random
@@ -48,7 +49,14 @@ import sys
 sim = None
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
-app.config["SECRET_KEY"] = "virtualworld-secret"
+_flask_secret_key = os.environ.get("VIRTUALWORLD_SECRET_KEY")
+if _flask_secret_key and len(_flask_secret_key) < 32:
+    raise RuntimeError("VIRTUALWORLD_SECRET_KEY doit contenir au moins 32 caractères")
+if not _flask_secret_key:
+    _flask_secret_key = secrets.token_urlsafe(48)
+    logging.warning(
+        "[security] VIRTUALWORLD_SECRET_KEY absente, utilisation d'une clé temporaire")
+app.config["SECRET_KEY"] = _flask_secret_key
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 # ping_timeout élevé (120 s) : tolère qu'un joueur laisse l'onglet en arrière-plan
 # plusieurs minutes (le navigateur throttle le pong) sans être déconnecté. Son
