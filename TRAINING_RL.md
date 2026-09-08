@@ -392,7 +392,7 @@ Sans checkpoint explicite, `rl_runtime.py` cherche d'abord
 Dans la console du navigateur :
 
 ```javascript
-spawnRlBot("aisub_v14_selfplay");
+spawnRlBot("aisub_v15_scripted");
 spawnRlBot("aidest_v3_scripted", false, "", "destroyer");
 ```
 

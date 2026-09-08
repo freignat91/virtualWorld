@@ -16,7 +16,7 @@ SOURCE_HOST=${1:-francois@192.168.1.20}
 SOURCE_ROOT=${2:-/data/dev/opencode/virtualWorld}
 TARGET_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 BRANCH=${GIT_BRANCH:-main}
-RUNS=(aisub_v14_selfplay aidest_v3_scripted)
+RUNS=(aisub_v15_scripted aidest_v3_scripted)
 
 if [[ $SOURCE_HOST == *:* ]]; then
     echo "La machine source ne doit pas contenir de chemin: $SOURCE_HOST" >&2

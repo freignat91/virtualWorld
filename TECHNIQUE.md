@@ -906,7 +906,7 @@ Dans la console du navigateur,
 `spawnRlBot("aidest_v3_scripted", false, "", "destroyer")` charge le meilleur
 checkpoint v3 compatible. Dans la fenêtre `Unités`, les boutons `Sub IA` et
 `Destroyer IA` chargent respectivement les meilleurs checkpoints de
-`aisub_v14_selfplay` et `aidest_v3_scripted`, dans l'équipe choisie.
+`aisub_v15_scripted` et `aidest_v3_scripted`, dans l'équipe choisie.
 
 Après les 5 millions d'étapes, une évaluation indépendante de 100 épisodes par
 adversaire et par candidat a confirmé le checkpoint `best_model.zip` issu de
@@ -928,3 +928,10 @@ OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
   --stage scripted --run-name aisub_v15_scripted \
   --resume models_rl/aisub_v14_selfplay/best/best_model.zip --device cuda
 ```
+
+Après 3 millions d'étapes, six candidats ont été évalués sur les mêmes graines,
+avec 100 épisodes contre chacun de `autosub`, `autodest` et le meilleur
+destroyer v3. Le checkpoint 500 k est retenu : 32/10/58, 74/3/23 et 61/34/5
+(victoires/défaites/nuls), soit un score de match agrégé de 70 %. Il remplace
+`best_model.zip` ; le meilleur du callback à 400 k est conservé sous
+`callback_best_model.zip`.
