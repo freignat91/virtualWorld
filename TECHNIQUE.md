@@ -934,4 +934,23 @@ avec 100 épisodes contre chacun de `autosub`, `autodest` et le meilleur
 destroyer v3. Le checkpoint 500 k est retenu : 32/10/58, 74/3/23 et 61/34/5
 (victoires/défaites/nuls), soit un score de match agrégé de 70 %. Il remplace
 `best_model.zip` ; le meilleur du callback à 400 k est conservé sous
-`callback_best_model.zip`.
+`archive/callback_best_model.zip`.
+
+### Phase 5 : alternance destroyer v4
+
+La sélection automatique ne repose plus sur la récompense moyenne. Le callback
+évalue chaque adversaire séparément et conserve le meilleur score pondéré
+`victoire + 0,5 × nul` dans `best/best_model.zip`. Les détails sont écrits dans
+`evaluation/match_scores.jsonl` et `best/selection.json`.
+
+`aidest_v4` reprend le champion v3, affronte à parts égales `autosub` et le
+champion `aisub_v15_scripted`, et conserve l'interface `destroyer_duel_v2`. Le
+taux d'apprentissage et l'entropie sont réduits pour un raffinement de 2 millions
+d'étapes :
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+  venv/bin/python train_ai.py --config configs/aidest_v4.json \
+  --stage scripted --run-name aidest_v4_scripted \
+  --resume models_rl/aidest_v3_scripted/best/best_model.zip --device cuda
+```

@@ -176,7 +176,7 @@ Chaque fichier de `configs/` contient six sections obligatoires.
 | `training` | Nombre d'étapes, workers et hyperparamètres PPO |
 | `env` | Coque, interface, carte, adversaires et curriculum |
 | `reward` | Récompenses terminales et intermédiaires |
-| `evaluation` | Carte, adversaires, fréquence et nombre d'épisodes |
+| `evaluation` | Carte, adversaires, fréquence et épisodes par adversaire |
 | `league` | Probabilité self-play et conservation des snapshots |
 
 Configurations principales :
@@ -248,6 +248,15 @@ OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
 le meilleur `aidest_v3_scripted` comme adversaire gelé ; l'autre moitié utilise
 un mélange équilibré de `autosub` et `autodest` pour limiter l'oubli des
 comportements déjà acquis.
+
+Raffinement alterné du destroyer contre le sous-marin v15 sélectionné :
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+  .venv/bin/python train_ai.py --config configs/aidest_v4.json \
+  --stage scripted --run-name aidest_v4_scripted \
+  --resume models_rl/aidest_v3_scripted/best/best_model.zip --device cuda
+```
 
 Utiliser `--device cpu` sur une machine sans CUDA. La limitation des threads CPU
 évite que les huit workers chargés d'exécuter les adversaires RL ne se disputent
@@ -325,20 +334,25 @@ Un run `models_rl/<run_name>/` contient :
 | `monitor.csv` | Résultats des épisodes d'entraînement |
 | `tensorboard/` | Métriques TensorBoard |
 | `checkpoints/` | Sauvegardes périodiques |
-| `evaluation/evaluations.npz` | Historique des évaluations automatiques |
-| `best/best_model.zip` | Meilleure récompense moyenne d'évaluation |
+| `evaluation/match_scores.jsonl` | Score de match détaillé à chaque évaluation |
+| `best/best_model.zip` | Meilleur score `victoire + 0,5 × nul` pondéré |
+| `best/selection.json` | Étape, score et résultats du modèle sélectionné |
 | `league/` | Bootstrap et snapshots self-play |
 | `policy_final.zip` | Politique à la dernière étape |
 
-`best_model.zip` et `policy_final.zip` ne sont pas nécessairement identiques. Une
-politique peut régresser en fin d'entraînement ; il faut donc évaluer le meilleur
-checkpoint et ne pas choisir automatiquement le modèle final.
+Les anciens runs créés avec `EvalCallback` possèdent encore un fichier
+`evaluation/evaluations.npz`. `best_model.zip` et `policy_final.zip` ne sont pas
+nécessairement identiques : une politique peut régresser en fin d'entraînement.
+Une évaluation indépendante sur davantage d'épisodes reste requise avant la
+promotion dans le jeu.
 
 ## Interprétation des métriques
 
 - `rollout/success_rate` mesure les derniers épisodes d'entraînement, avec le
   curriculum et le mélange courant d'adversaires.
-- `eval/success_rate` mesure des épisodes déterministes sans curriculum.
+- `eval/match_score` agrège les évaluations déterministes selon les poids réels
+  des adversaires, sans curriculum.
+- `eval/opponent_<n>_match_score` expose chaque adversaire séparément.
 - `ep_rew_mean` combine victoire, dégâts, coût temporel et actions.
 - `explained_variance` indique la qualité de la fonction de valeur.
 - `entropy_loss` reflète la diversité restante des actions.

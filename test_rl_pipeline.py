@@ -97,6 +97,56 @@ class GymEnvironmentTest(unittest.TestCase):
         finally:
             env.close()
 
+    def test_match_score_evaluation_saves_best_model(self) -> None:
+        from sb3_contrib import RecurrentPPO
+        from rl_env import SubmarineDuelEnv
+        from train_ai import MatchScoreEvalCallback, match_score, weighted_match_score
+
+        low = {"episodes": 10, "wins": 2, "losses": 6, "draws": 2}
+        high = {"episodes": 10, "wins": 6, "losses": 2, "draws": 2}
+        self.assertEqual(0.3, match_score(low))
+        self.assertAlmostEqual(
+            0.6, weighted_match_score(((low, 0.25), (high, 0.75))))
+        with self.assertRaises(ValueError):
+            match_score({"episodes": 10, "wins": 4, "losses": 4, "draws": 1})
+        with self.assertRaises(ValueError):
+            weighted_match_score(((low, -1.0),))
+
+        env = SubmarineDuelEnv(
+            seed=26, frame_skip=2, max_physics_steps=20,
+            spawn_min_m=400.0, spawn_max_m=700.0)
+        config = {
+            "env": {
+                "agent_boat_type": "submarine", "max_physics_steps": 20,
+                "frame_skip": 2, "spawn_min_m": 400.0, "spawn_max_m": 700.0,
+            },
+            "reward": {},
+            "evaluation": {
+                "map_name": "testCombats",
+                "opponents": [
+                    {"boat_type": "submarine", "ai": "autosub", "weight": 1.0}],
+            },
+        }
+        try:
+            model = RecurrentPPO(
+                "MlpLstmPolicy", env, n_steps=8, batch_size=8, n_epochs=1,
+                policy_kwargs={"net_arch": [16], "lstm_hidden_size": 16},
+                device="cpu", seed=26, verbose=0)
+            with TemporaryDirectory() as directory:
+                output_dir = Path(directory)
+                callback = MatchScoreEvalCallback(
+                    config, output_dir, every_steps=8, episodes=2, seed=26)
+                model.learn(total_timesteps=8, callback=callback)
+                self.assertTrue((output_dir / "best" / "best_model.zip").is_file())
+                self.assertTrue((output_dir / "best" / "selection.json").is_file())
+                self.assertTrue((output_dir / "evaluation" / "match_scores.jsonl").is_file())
+                resumed = MatchScoreEvalCallback(
+                    config, output_dir, every_steps=8, episodes=2, seed=26)
+                resumed.init_callback(model)
+                self.assertEqual(callback.best_score, resumed.best_score)
+        finally:
+            env.close()
+
     def test_destroyer_opponent_is_spawned_explicitly(self) -> None:
         from rl_env import SubmarineDuelEnv
 

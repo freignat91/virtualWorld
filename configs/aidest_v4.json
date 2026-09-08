@@ -1,0 +1,80 @@
+{
+  "name": "aidest_v4",
+  "description": "Raffinement du destroyer v3 contre le meilleur sous-marin v15 gele et autosub.",
+  "model": {
+    "net_arch": [256, 256],
+    "lstm_hidden_size": 256,
+    "n_lstm_layers": 1
+  },
+  "training": {
+    "total_steps": 2000000,
+    "n_envs": 8,
+    "seed": 542,
+    "learning_rate": 0.00005,
+    "n_steps": 1024,
+    "batch_size": 256,
+    "n_epochs": 8,
+    "gamma": 0.997,
+    "gae_lambda": 0.97,
+    "ent_coef": 0.003,
+    "ent_coef_end": 0.0003,
+    "clip_range": 0.2,
+    "vf_coef": 0.5,
+    "max_grad_norm": 0.5,
+    "checkpoint_every_steps": 250000
+  },
+  "env": {
+    "map_name": "combats",
+    "agent_boat_type": "destroyer",
+    "control_version": "destroyer_duel_v2",
+    "opponents": [
+      {"boat_type": "submarine", "ai": "autosub", "weight": 1.0}
+    ],
+    "fixed_opponent_policy": {
+      "boat_type": "submarine",
+      "pool_dir": "models_rl/aisub_v15_scripted/best",
+      "probability": 0.5
+    },
+    "frame_skip": 5,
+    "max_physics_steps": 6000,
+    "spawn_min_m": 600.0,
+    "spawn_max_m": 2000.0,
+    "curriculum_start_min_m": 600.0,
+    "curriculum_start_max_m": 1200.0,
+    "curriculum_fraction": 0.2
+  },
+  "reward": {
+    "win": 10.0,
+    "loss": -10.0,
+    "damage_dealt": 0.02,
+    "damage_taken": -0.02,
+    "decision_cost": -0.001,
+    "weapon_fired": -0.02,
+    "weapon_invalid": -0.005,
+    "lure_dropped": -0.01,
+    "lure_invalid": -0.002,
+    "sonar_pinged": -0.01,
+    "sonar_invalid": -0.002,
+    "mine_placed": -0.08,
+    "mine_invalid": -0.005,
+    "new_contact": 0.01
+  },
+  "evaluation": {
+    "map_name": "testCombats",
+    "opponents": [
+      {"boat_type": "submarine", "ai": "autosub", "weight": 1.0}
+    ],
+    "fixed_opponent_policy": {
+      "boat_type": "submarine",
+      "pool_dir": "models_rl/aisub_v15_scripted/best",
+      "probability": 0.5
+    },
+    "every_steps": 100000,
+    "episodes": 30
+  },
+  "league": {
+    "self_play_probability": 0.7,
+    "snapshot_every_steps": 250000,
+    "keep_last": 12
+  }
+}

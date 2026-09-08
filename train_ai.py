@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import math
 import os
 import shutil
+import zipfile
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Sequence, Tuple
 
 from sb3_contrib import RecurrentPPO
-from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, EvalCallback
+from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.utils import get_schedule_fn
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecMonitor
 
+from evaluate_ai import evaluate as evaluate_policy
 from rl_control import control_spec
 from rl_env import SubmarineDuelEnv
 
@@ -58,6 +62,185 @@ class LeagueSnapshotCallback(BaseCallback):
         snapshots = sorted(self.directory.glob("policy_*.zip"))
         for old_path in snapshots[:-self.keep_last]:
             old_path.unlink(missing_ok=True)
+        while self.next_step <= self.num_timesteps:
+            self.next_step += self.every_steps
+        return True
+
+
+def match_score(result: Dict[str, Any]) -> float:
+    """Calcule victoire + 0,5 nul sur une série d'évaluation."""
+    episodes = int(result.get("episodes", 0))
+    if episodes <= 0:
+        raise ValueError("une évaluation doit contenir au moins un épisode")
+    wins = int(result.get("wins", 0))
+    losses = int(result.get("losses", 0))
+    draws = int(result.get("draws", 0))
+    if min(wins, losses, draws) < 0 or wins + losses + draws != episodes:
+        raise ValueError("comptes victoire/défaite/nul incohérents")
+    return (wins + 0.5 * draws) / episodes
+
+
+def weighted_match_score(results: Sequence[Tuple[Dict[str, Any], float]]) -> float:
+    """Agrège les adversaires selon leur probabilité dans la configuration."""
+    if any(not math.isfinite(weight) or weight < 0.0 for _, weight in results):
+        raise ValueError("poids d'évaluation invalide")
+    total_weight = sum(weight for _, weight in results)
+    if total_weight <= 0.0:
+        raise ValueError("poids d'évaluation total nul")
+    return sum(match_score(result) * weight for result, weight in results) / total_weight
+
+
+def file_sha256(path: Path) -> str:
+    """Calcule l'empreinte d'un artefact sans le charger entièrement en mémoire."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+class MatchScoreEvalCallback(BaseCallback):
+    """Évalue chaque adversaire et conserve le meilleur score de match."""
+
+    def __init__(self, config: Dict[str, Any], output_dir: Path,
+                 every_steps: int, episodes: int, seed: int) -> None:
+        super().__init__()
+        self.config = config
+        self.output_dir = output_dir
+        self.every_steps = int(every_steps)
+        self.episodes = int(episodes)
+        if self.every_steps <= 0:
+            raise ValueError("evaluation.every_steps doit être positif")
+        if self.episodes <= 0:
+            raise ValueError("evaluation.episodes doit être positif")
+        self.seed = int(seed)
+        self.next_step = self.every_steps
+        self.best_score = float("-inf")
+
+    def _selection_signature(self) -> str:
+        env_cfg = self.config["env"]
+        selection_config = {
+            "agent_boat_type": env_cfg.get("agent_boat_type", "submarine"),
+            "control_version": env_cfg.get("control_version"),
+            "frame_skip": env_cfg["frame_skip"],
+            "max_physics_steps": env_cfg["max_physics_steps"],
+            "spawn_min_m": env_cfg["spawn_min_m"],
+            "spawn_max_m": env_cfg["spawn_max_m"],
+            "reward": self.config["reward"],
+            "evaluation": self.config["evaluation"],
+            "episodes": self.episodes,
+            "seed": self.seed,
+        }
+        encoded = json.dumps(
+            selection_config, sort_keys=True, separators=(",", ":"),
+            ensure_ascii=True).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    def _init_callback(self) -> None:
+        selection_path = self.output_dir / "best" / "selection.json"
+        if not selection_path.is_file():
+            return
+        with selection_path.open(encoding="utf-8") as handle:
+            previous = json.load(handle)
+        best_model_path = self.output_dir / "best" / "best_model.zip"
+        if previous.get("selection_signature") != self._selection_signature():
+            raise RuntimeError("configuration d'évaluation différente du meilleur modèle existant")
+        if not best_model_path.is_file() or not zipfile.is_zipfile(best_model_path):
+            raise RuntimeError("meilleur modèle existant absent ou invalide")
+        if previous.get("model_sha256") != file_sha256(best_model_path):
+            raise RuntimeError("le meilleur modèle ne correspond pas à selection.json")
+        self.best_score = float(previous["match_score"])
+
+    def _evaluate(self) -> Tuple[float, list[Dict[str, Any]]]:
+        env_cfg = self.config["env"]
+        eval_cfg = self.config["evaluation"]
+        agent_boat_type = env_cfg.get("agent_boat_type", "submarine")
+        control_version = control_spec(
+            agent_boat_type, env_cfg.get("control_version"))[0]
+        env_options = {
+            "max_physics_steps": int(env_cfg["max_physics_steps"]),
+            "frame_skip": int(env_cfg["frame_skip"]),
+            "spawn_min_m": float(env_cfg["spawn_min_m"]),
+            "spawn_max_m": float(env_cfg["spawn_max_m"]),
+            "reward": self.config["reward"],
+        }
+        fixed_policy = eval_cfg.get("fixed_opponent_policy") or {}
+        fixed_probability = max(0.0, min(1.0, float(fixed_policy.get("probability", 0.0))))
+        opponents = tuple(eval_cfg.get("opponents") or ())
+        bt_weight = sum(float(opponent.get("weight", 1.0)) for opponent in opponents)
+        weighted_results: list[Tuple[Dict[str, Any], float]] = []
+        details: list[Dict[str, Any]] = []
+
+        for opponent in opponents:
+            weight = ((1.0 - fixed_probability) * float(opponent.get("weight", 1.0))
+                      / bt_weight) if bt_weight > 0.0 else 0.0
+            result = evaluate_policy(
+                self.model, eval_cfg["map_name"], opponent["boat_type"], opponent["ai"],
+                self.episodes, self.seed, agent_boat_type=agent_boat_type,
+                agent_control_version=control_version, env_options=env_options)
+            result["selection_weight"] = weight
+            result["match_score"] = match_score(result)
+            weighted_results.append((result, weight))
+            details.append(result)
+
+        fixed_pool = fixed_policy.get("pool_dir")
+        if fixed_pool and fixed_probability > 0.0:
+            pool_path = Path(fixed_pool)
+            if not pool_path.is_absolute():
+                pool_path = BASE_DIR / pool_path
+            fixed_boat_type = fixed_policy.get("boat_type", "submarine")
+            result = evaluate_policy(
+                self.model, eval_cfg["map_name"], fixed_boat_type, "autosub",
+                self.episodes, self.seed, str(pool_path), agent_boat_type,
+                fixed_boat_type, control_version, env_options)
+            result["selection_weight"] = fixed_probability
+            result["match_score"] = match_score(result)
+            weighted_results.append((result, fixed_probability))
+            details.append(result)
+
+        score = weighted_match_score(weighted_results)
+        return score, details
+
+    def _save_best(self, score: float, details: list[Dict[str, Any]]) -> None:
+        best_dir = self.output_dir / "best"
+        best_dir.mkdir(parents=True, exist_ok=True)
+        temporary_model = best_dir / ".best_model.tmp.zip"
+        self.model.save(temporary_model)
+        model_digest = file_sha256(temporary_model)
+        metadata = {
+            "timesteps": self.num_timesteps,
+            "match_score": score,
+            "selection_signature": self._selection_signature(),
+            "model_sha256": model_digest,
+            "opponents": details,
+        }
+        temporary_metadata = best_dir / ".selection.tmp.json"
+        with temporary_metadata.open("w", encoding="utf-8") as handle:
+            json.dump(metadata, handle, indent=2, ensure_ascii=False)
+        os.replace(temporary_model, best_dir / "best_model.zip")
+        os.replace(temporary_metadata, best_dir / "selection.json")
+
+    def _on_step(self) -> bool:
+        if self.num_timesteps < self.next_step:
+            return True
+        score, details = self._evaluate()
+        history_dir = self.output_dir / "evaluation"
+        history_dir.mkdir(parents=True, exist_ok=True)
+        record = {
+            "timesteps": self.num_timesteps,
+            "match_score": score,
+            "opponents": details,
+        }
+        with (history_dir / "match_scores.jsonl").open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+        self.logger.record("eval/match_score", score)
+        for index, detail in enumerate(details):
+            self.logger.record(f"eval/opponent_{index}_match_score", detail["match_score"])
+        print(f"Match score at {self.num_timesteps} steps: {score:.2%}")
+        if score > self.best_score:
+            self.best_score = score
+            self._save_best(score, details)
+            print("New best match score!")
         while self.next_step <= self.num_timesteps:
             self.next_step += self.every_steps
         return True
@@ -176,6 +359,11 @@ def main() -> None:
         curriculum_decisions=curriculum_decisions, league_dir=league_dir)()
     check_env(smoke_env, warn=True)
     smoke_env.close()
+    smoke_eval_env = make_env(
+        config, seed=int(training["seed"]) + 100_000,
+        stage="scripted", curriculum_decisions=0,
+        league_dir=league_dir, evaluation=True)()
+    smoke_eval_env.close()
 
     env_factories = [
         make_env(
@@ -186,14 +374,6 @@ def main() -> None:
     vec_env = DummyVecEnv(env_factories) if n_envs == 1 else SubprocVecEnv(
         env_factories, start_method="forkserver")
     vec_env = VecMonitor(vec_env, filename=str(output_dir / "monitor.csv"))
-    eval_env = DummyVecEnv([
-        make_env(
-            config, seed=int(training["seed"]) + 100_000,
-            stage="scripted", curriculum_decisions=0,
-            league_dir=league_dir, evaluation=True)
-    ])
-    eval_env = VecMonitor(eval_env)
-
     policy_kwargs = {
         "net_arch": list(model_cfg["net_arch"]),
         "lstm_hidden_size": int(model_cfg["lstm_hidden_size"]),
@@ -228,13 +408,11 @@ def main() -> None:
         CheckpointCallback(
             save_freq=max(1, int(training["checkpoint_every_steps"]) // n_envs),
             save_path=str(output_dir / "checkpoints"), name_prefix="policy"),
-        EvalCallback(
-            eval_env,
-            best_model_save_path=str(output_dir / "best"),
-            log_path=str(output_dir / "evaluation"),
-            eval_freq=max(1, int(config["evaluation"]["every_steps"]) // n_envs),
-            n_eval_episodes=int(config["evaluation"]["episodes"]),
-            deterministic=True,
+        MatchScoreEvalCallback(
+            config, output_dir,
+            every_steps=int(config["evaluation"]["every_steps"]),
+            episodes=int(config["evaluation"]["episodes"]),
+            seed=int(training["seed"]) + 100_000,
         ),
     ]
     if args.stage == "selfplay":
@@ -251,7 +429,6 @@ def main() -> None:
     finally:
         model.save(output_dir / "policy_final")
         vec_env.close()
-        eval_env.close()
 
 
 if __name__ == "__main__":

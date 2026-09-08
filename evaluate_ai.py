@@ -18,7 +18,9 @@ def evaluate(model: RecurrentPPO, map_name: str, boat_type: str, opponent_ai: st
              episodes: int, seed: int, opponent_pool_dir: str | None = None,
              agent_boat_type: str = "submarine",
              opponent_pool_boat_type: str = "submarine",
-             agent_control_version: str | None = None) -> dict:
+             agent_control_version: str | None = None,
+             env_options: dict | None = None) -> dict:
+    options = dict(env_options or {})
     env = SubmarineDuelEnv(
         map_name=map_name,
         agent_boat_type=agent_boat_type,
@@ -28,6 +30,7 @@ def evaluate(model: RecurrentPPO, map_name: str, boat_type: str, opponent_ai: st
         fixed_opponent_boat_type=opponent_pool_boat_type,
         fixed_policy_probability=1.0 if opponent_pool_dir else 0.0,
         seed=seed,
+        **options,
     )
     outcomes: Counter[str] = Counter()
     totals: Counter[str] = Counter()
