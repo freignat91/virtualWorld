@@ -235,6 +235,20 @@ OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
   --stage scripted --run-name aidest_v3_scripted --device cuda
 ```
 
+Raffinement alterné du sous-marin contre le destroyer RL sélectionné :
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+  .venv/bin/python train_ai.py --config configs/aisub_v15.json \
+  --stage scripted --run-name aisub_v15_scripted \
+  --resume models_rl/aisub_v14_selfplay/best/best_model.zip --device cuda
+```
+
+`aisub_v15` conserve l'interface `sub_duel_v1`. La moitié des épisodes utilise
+le meilleur `aidest_v3_scripted` comme adversaire gelé ; l'autre moitié utilise
+un mélange équilibré de `autosub` et `autodest` pour limiter l'oubli des
+comportements déjà acquis.
+
 Utiliser `--device cpu` sur une machine sans CUDA. La limitation des threads CPU
 évite que les huit workers chargés d'exécuter les adversaires RL ne se disputent
 inutilement tous les cœurs.

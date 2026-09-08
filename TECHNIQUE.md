@@ -907,3 +907,24 @@ Dans la console du navigateur,
 checkpoint v3 compatible. Dans la fenêtre `Unités`, les boutons `Sub IA` et
 `Destroyer IA` chargent respectivement les meilleurs checkpoints de
 `aisub_v14_selfplay` et `aidest_v3_scripted`, dans l'équipe choisie.
+
+Après les 5 millions d'étapes, une évaluation indépendante de 100 épisodes par
+adversaire et par candidat a confirmé le checkpoint `best_model.zip` issu de
+3,6 millions d'étapes : 24 % de victoires contre `autosub` et 43 % contre
+`aisub_v14_selfplay`. Le modèle final obtient respectivement 15 % et 36 % ; il
+n'est donc pas promu.
+
+### Phase 4 : alternance sous-marin v15
+
+`aisub_v15` reprend le meilleur sous-marin v14 avec un taux d'apprentissage et
+une entropie réduits. Il affronte le meilleur destroyer v3 gelé dans 50 % des
+épisodes ; les autres duels restent répartis entre `submarine/autosub` et
+`destroyer/autodest`. Un curriculum court passe de 600-1 200 m aux distances
+complètes de 600-2 000 m :
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+  venv/bin/python train_ai.py --config configs/aisub_v15.json \
+  --stage scripted --run-name aisub_v15_scripted \
+  --resume models_rl/aisub_v14_selfplay/best/best_model.zip --device cuda
+```

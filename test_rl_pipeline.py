@@ -232,6 +232,43 @@ class GymEnvironmentTest(unittest.TestCase):
             finally:
                 destroyer_env.close()
 
+    def test_submarine_smoke_training_against_frozen_destroyer(self) -> None:
+        from sb3_contrib import RecurrentPPO
+        from rl_env import SubmarineDuelEnv
+
+        with TemporaryDirectory() as directory:
+            pool_dir = Path(directory)
+            destroyer_env = SubmarineDuelEnv(
+                agent_boat_type="destroyer", control_version=DESTROYER_OBSERVATION_VERSION,
+                seed=24, frame_skip=2, max_physics_steps=20,
+                spawn_min_m=400.0, spawn_max_m=700.0)
+            try:
+                destroyer_model = RecurrentPPO(
+                    "MlpLstmPolicy", destroyer_env, n_steps=8, batch_size=8, n_epochs=1,
+                    policy_kwargs={"net_arch": [16], "lstm_hidden_size": 16},
+                    device="cpu", seed=24, verbose=0)
+                destroyer_model.save(pool_dir / "destroyer")
+            finally:
+                destroyer_env.close()
+
+            submarine_env = SubmarineDuelEnv(
+                opponents=[{"boat_type": "submarine", "ai": "autosub", "weight": 1.0}],
+                fixed_opponent_pool_dir=str(pool_dir),
+                fixed_opponent_boat_type="destroyer", fixed_policy_probability=1.0,
+                seed=25, frame_skip=2, max_physics_steps=20,
+                spawn_min_m=400.0, spawn_max_m=700.0)
+            try:
+                _, info = submarine_env.reset(seed=25)
+                self.assertEqual("policy", info["opponent_kind"])
+                self.assertEqual("destroyer", info["opponent_boat_type"])
+                submarine_model = RecurrentPPO(
+                    "MlpLstmPolicy", submarine_env, n_steps=8, batch_size=8, n_epochs=1,
+                    policy_kwargs={"net_arch": [16], "lstm_hidden_size": 16},
+                    device="cpu", seed=25, verbose=0)
+                submarine_model.learn(total_timesteps=16)
+            finally:
+                submarine_env.close()
+
     def test_invalid_opponent_configuration_is_rejected(self) -> None:
         from rl_env import SubmarineDuelEnv
 
