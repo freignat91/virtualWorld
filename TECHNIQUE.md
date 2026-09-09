@@ -16,7 +16,7 @@ boats/
 maps/
   world*.json    cartes (sol + îles polygonales)
 config/
-  conffile.json  port serveur, durée jour
+conffile.json  port serveur, durée jour, sélection des bots RL
 certs/           cert SSL local
 logs/
   server.log     RotatingFileHandler 10 MB × 3 (basicConfig INFO)
@@ -868,6 +868,55 @@ Dans la console du navigateur, `spawnRlBot("aisub_v14_selfplay")` charge d'abord
 puis `policy_final.zip` si aucun meilleur modèle n'existe. La forme des espaces
 d'observation et d'action est validée au chargement ; un échec replie le bot sur
 `autosub` et écrit la cause dans le journal serveur.
+
+### Sélection et déploiement des modèles live
+
+Les boutons `Sub IA` / `Destroyer IA` utilisent les clés à la racine de
+`config/conffile.json`, avec les champions actuels comme valeurs par défaut :
+
+```json
+{
+  "bot_rl_sub": "aisub_v15_scripted",
+  "bot_rl_destroyer": "aidest_v3_scripted",
+  "server": { "port": 7000 },
+  "world": { "dayDurationSeconds": 1800 }
+}
+```
+
+`bub` est intentionnel. `rl/model_config.py` valide les identifiants au démarrage
+et ne publie que ces deux valeurs dans `init.botRlModels`. Le client ajoute
+`rl_` à la sélection lors de `spawn_bot` ; aucune version plus récente ne la
+remplace automatiquement et aucun accès HTTP au fichier de configuration
+n'est ajouté. Une valeur absente utilise le défaut ; une valeur invalide
+interrompt le démarrage avec le nom de la clé.
+
+La syntaxe existante `run:checkpoint` reste disponible, par exemple
+`"bot_rl_destroyer": "aidest_v4_scripted:policy_250000_steps"`. Le runtime cherche
+ce fichier à la racine du run puis dans `checkpoints/`, avec `.zip` facultatif.
+Sans checkpoint : `best/best_model.zip`, sinon `policy_final.zip`. Les identifiants
+ne sont pas des chemins ; la résolution refuse aussi les liens sortant de
+`models_rl`. Les espaces observation/action sont toujours validés pour le bateau
+au chargement. Un échec conserve le repli journalisé `autosub` / `autodest`.
+Redémarrer puis reconnecter le client pour appliquer une nouvelle sélection.
+
+Sur la machine cible, `./update_server.sh [utilisateur@source] [/chemin/source]`
+conserve la mise à jour Git fast-forward puis utilise `rl/sync_models.py` :
+inventaire récursif via SSH/Python 3, copie SCP de **tous** les ZIP sous
+`rl/models_rl`, dossiers conservés (`best`, `checkpoints`, finaux, `league`,
+`archive`, toutes versions). Aucun log, TensorBoard ou rapport n'est copié,
+aucune suppression des artefacts propres à la cible, aucune promotion.
+Le dépôt doit être propre et une différence distante de `config/conffile.json`
+bloque le pull pour imposer une réconciliation explicite, sans écrasement local.
+
+Les chemins et liens cibles sont contrôlés ; chaque ZIP est vérifié par CRC
+et présence des membres SB3, sans chargement pickle. Tous les transferts sont
+validés avant installation ; le staging est sur le système de fichiers cible
+et `os.replace` est atomique par fichier, pas pour l'ensemble des modèles.
+Une panne pendant l'installation peut donc laisser un mélange de versions.
+Utiliser une source SSH de confiance et stable pendant la copie, prévoir
+l'espace pour tous les ZIP. Pas de dépendance `rsync`, seulement SSH/SCP et
+Python 3 local/distant ; chemin source absolu sans espaces. Le script ne lance
+ni n'arrête le serveur : redémarrage explicite pour vider le cache RL.
 
 ### Phase 3 : politique destroyer
 

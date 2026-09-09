@@ -466,6 +466,10 @@ def dispatch_events(events_list):
 with open("config/conffile.json", "r") as f:
     config = json.load(f)
 
+from rl.model_config import public_bot_models
+
+BOT_RL_MODELS = public_bot_models(config)
+
 BOAT_TYPES = ["destroyer", "submarine"]
 
 MAPS_DIR = "maps"
@@ -911,6 +915,7 @@ def handle_select_boat(data):
         "rotation": players[request.sid]["rotation"],
         "dayCycle": day_cycle_snapshot(),
         "weapons": config.get("weapons", {}),
+        "botRlModels": BOT_RL_MODELS,
         "sonarBeacons": [
             {**{k: v for k, v in b.items() if k not in ("ownerSid", "revealedTeams")},
              "revealedByMyTeam": team_id in b.get("revealedTeams", set())}

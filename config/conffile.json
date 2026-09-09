@@ -1,4 +1,6 @@
 {
+  "bot_rl_sub": "aisub_v15_scripted",
+  "bot_rl_destroyer": "aidest_v3_scripted",
   "server": {
     "port": 7000
   },

@@ -9,6 +9,7 @@ from typing import Any, Dict
 import numpy as np
 
 from rl.rl_control import apply_action, build_observation, control_version_for_spaces
+from rl.model_config import parse_model_spec
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -18,23 +19,21 @@ _MODEL_CACHE: Dict[Path, Any] = {}
 
 def resolve_model_path(ai_name: str) -> Path:
     """Résout ``rl_<run>`` ou ``rl_<run>:<checkpoint>`` sans path traversal."""
-    if not ai_name.startswith("rl_"):
+    if not isinstance(ai_name, str) or not ai_name.startswith("rl_"):
         raise ValueError("le nom d'une politique doit commencer par rl_")
-    specification = ai_name[3:]
-    run_name, separator, checkpoint = specification.partition(":")
-    if not run_name or any(part in {"", ".", ".."} for part in Path(run_name).parts):
-        raise ValueError("nom de run RL invalide")
+    run_name, checkpoint = parse_model_spec(ai_name[3:])
     run_dir = (MODELS_DIR / run_name).resolve()
     if run_dir != MODELS_DIR and MODELS_DIR not in run_dir.parents:
         raise ValueError("run RL hors de models_rl")
-    if separator:
-        if Path(checkpoint).name != checkpoint:
-            raise ValueError("nom de checkpoint RL invalide")
+    if checkpoint:
         filename = checkpoint if checkpoint.endswith(".zip") else f"{checkpoint}.zip"
         candidates = (run_dir / filename, run_dir / "checkpoints" / filename)
     else:
         candidates = (run_dir / "best" / "best_model.zip", run_dir / "policy_final.zip")
     for candidate in candidates:
+        candidate = candidate.resolve()
+        if MODELS_DIR not in candidate.parents:
+            raise ValueError("modele RL hors de models_rl")
         if candidate.is_file():
             return candidate
     raise FileNotFoundError(f"aucun modèle trouvé pour {ai_name}: {candidates}")

@@ -94,7 +94,7 @@ Les journaux du serveur sont écrits dans `logs/server.log` avec rotation.
 ## Mise à jour d'un serveur
 
 Le script `update_server.sh` est conçu pour être lancé depuis la machine cible.
-Il met à jour la branche `main`, récupère par SSH les meilleurs modèles RL depuis
+Il met à jour la branche `main`, récupère par SSH tous les modèles ZIP RL depuis
 la machine d'entraînement, vérifie leurs archives et les installe dans
 `rl/models_rl/` :
 
@@ -107,8 +107,52 @@ La source par défaut est
 peuvent être remplacés avec
 `./update_server.sh utilisateur@machine /autre/chemin`. La connexion SSH de la
 cible vers la source doit être configurée. Le dépôt cible doit être sans
-modification suivie. Après la copie, redémarrer le serveur pour charger le
+modification suivie. Si la version distante de `config/conffile.json` diffère,
+le script refuse la mise à jour : réconcilier explicitement la configuration,
+sans perdre les choix locaux, avant de relancer. Aucun stash ni écrasement
+automatique de la configuration n'est effectué.
+
+La copie conserve tous les runs et sous-répertoires contenant des ZIP : `best`,
+`checkpoints`, modèles finaux, `league`, `archive`, y compris les versions non
+promues. Elle exclut les logs, TensorBoard et rapports JSON. Aucun fichier cible
+absent de la source n'est supprimé. Les ZIP sont tous téléchargés et vérifiés
+(CRC et membres SB3, sans exécuter les modèles) avant installation atomique par
+fichier sur le même système de fichiers. Un échec de transfert ou validation
+laisse les modèles installés intacts ; l'ensemble n'est pas une transaction
+atomique si une erreur survient pendant l'installation. Prévoir l'espace pour
+une copie complète et utiliser une source de confiance sans entraînement en
+cours d'écriture. Prérequis : `git`, `ssh`, `scp`, Python 3 local et distant,
+sans `rsync` ; chemin source absolu sans espaces. `./update_server.sh --help`
+ne contacte aucune machine. Après la copie, redémarrer le serveur pour charger le
 nouveau code et vider le cache des modèles RL.
+
+## Sélection des bots IA
+
+Les boutons **Sub IA** et **Destroyer IA** lisent ces clés à la racine de
+`config/conffile.json` (orthographe `bub` intentionnelle) :
+
+```json
+{
+  "bot_rl_sub": "aisub_v15_scripted",
+  "bot_rl_destroyer": "aidest_v3_scripted",
+  "server": { "port": 7000 },
+  "world": { "dayDurationSeconds": 1800 }
+}
+```
+
+Ces valeurs sont les défauts si les clés sont absentes. Utiliser le nom complet
+du run, sans préfixe `rl_` ; aucune sélection automatique d'une version récente.
+Un run charge `best/best_model.zip`, sinon `policy_final.zip`. Pour tester un
+checkpoint existant, utiliser par exemple
+`"bot_rl_destroyer": "aidest_v4_scripted:policy_250000_steps"` : recherche à la
+racine du run puis dans `checkpoints/`, extension `.zip` facultative. Les ZIP
+`league`/`archive` sont copiés pour les évaluations, sans nouveau sélecteur UI.
+Redémarrer le serveur et reconnecter le client après modification.
+
+Seuls ces deux identifiants sont ajoutés au bootstrap socket `init`, jamais le
+fichier de configuration complet. Un identifiant invalide bloque le démarrage ;
+un modèle absent ou incompatible avec le bateau utilise le repli BT existant
+(`autosub`/`autodest`) avec erreur dans les logs. La copie ne promeut aucun modèle.
 
 ## Tests
 

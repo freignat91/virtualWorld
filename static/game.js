@@ -1695,7 +1695,9 @@ socket.on("server_full", (data) => {
     document.getElementById("boatSelect").style.display = "block";
 });
 
+let botRlModels = {};
 socket.on("init", (data) => {
+    botRlModels = data.botRlModels || {};
     const _startupT0 = performance.now();
     const _startupLog = (label) => console.log(`[startup] ${label} +${(performance.now() - _startupT0).toFixed(0)}ms`);
     _startupLog("init reçu — playerId=" + data.playerId + " boatType=" + data.boatType);
@@ -6842,9 +6844,16 @@ function spawnUnitFromPopup(useMyTeam) {
     switch (botsPopupSelectedAi) {
         case "autosub":  boatType = "submarine"; finalAi = "autosub"; break;
         case "autodest": boatType = "destroyer"; finalAi = "autodest"; break;
-        case "rlsub":    boatType = "submarine"; finalAi = "rl_aisub_v15_scripted"; break;
-        case "rldest":   boatType = "destroyer"; finalAi = "rl_aidest_v3_scripted"; break;
+        case "rlsub":    boatType = "submarine"; finalAi = botRlModels.bot_rl_sub; break;
+        case "rldest":   boatType = "destroyer"; finalAi = botRlModels.bot_rl_destroyer; break;
         default: setBotsPopupStatus("Type inconnu."); return;
+    }
+    if (botsPopupSelectedAi === "rlsub" || botsPopupSelectedAi === "rldest") {
+        if (typeof finalAi !== "string" || !finalAi) {
+            setBotsPopupStatus("Configuration RL indisponible.");
+            return;
+        }
+        finalAi = `rl_${finalAi}`;
     }
     const payload = { boatType, ai: finalAi };
     if (useMyTeam) {
