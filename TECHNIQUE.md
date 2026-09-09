@@ -954,3 +954,11 @@ OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
   --stage scripted --run-name aidest_v4_scripted \
   --resume models_rl/aidest_v3_scripted/best/best_model.zip --device cuda
 ```
+
+Après 2 millions d'étapes, le callback retient le checkpoint 300 k avec un
+score interne de 50 %. L'évaluation indépendante compare ce candidat au
+champion v3 sur deux séries de graines et 200 épisodes par adversaire. V4
+obtient 65/35/100 contre `autosub` et 55/128/17 contre `aisub_v15` ; v3 obtient
+respectivement 32/5/163 et 58/128/14. Les deux modèles atteignent exactement
+44,625 % au score agrégé. V4 ne satisfait donc pas le gain minimal de trois
+points et n'est pas promu ; le bouton `Destroyer IA` reste sur v3.
