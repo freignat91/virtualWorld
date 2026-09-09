@@ -752,9 +752,9 @@ Les `*_count(s)` incluent désormais un champ `bsid` (`null` pour le bateau prim
 ## Entraînement RL
 
 Le pipeline entraîne des sous-marins et des destroyers en duel 1v1 sans serveur
-Flask. Il réutilise directement `simulation.Sim` grâce à `headless.py` : les
+Flask. Il réutilise directement `simulation.Sim` grâce à `rl/headless.py` : les
 règles d'armement, de dégâts, de sonar et de leurres sont donc celles du jeu
-autoritaire. `TRAINING_RL.md` décrit les commandes et le diagnostic en détail.
+autoritaire. `rl/TRAINING_RL.md` décrit les commandes et le diagnostic en détail.
 
 La configuration `aisub_v14` entraîne un sous-marin.
 Les adversaires BT sont configurés par coque, IA et poids. La politique reste
@@ -779,22 +779,22 @@ tirée que sur un contact datant de moins d'une seconde.
 ### Phase 1 : adversaire algorithmique
 
 ```bash
-venv/bin/python train_ai.py --config configs/aisub_v14.json \
+venv/bin/python -m rl.train_ai --config rl/configs/aisub_v14.json \
   --stage scripted --run-name aisub_v14_scripted \
-  --resume models_rl/aisub_v13_scripted/best/best_model.zip
+  --resume rl/models_rl/aisub_v13_scripted/best/best_model.zip
 ```
 
 Les huit environnements affrontent un mélange équilibré de sous-marins
 `autosub` et de destroyers `autodest`. Une évaluation agrégée se déroule sur
 `world_testCombats.json` et conserve le meilleur modèle dans
-`models_rl/aisub_v14_scripted/best/best_model.zip`.
+`rl/models_rl/aisub_v14_scripted/best/best_model.zip`.
 
 ### Phase 2 : ligue self-play
 
 ```bash
-venv/bin/python train_ai.py --config configs/aisub_v14.json \
+venv/bin/python -m rl.train_ai --config rl/configs/aisub_v14.json \
   --stage selfplay --run-name aisub_v14_selfplay \
-  --resume models_rl/aisub_v14_scripted/best/best_model.zip
+  --resume rl/models_rl/aisub_v14_scripted/best/best_model.zip
 ```
 
 Le checkpoint initial et les snapshots périodiques alimentent le répertoire
@@ -805,8 +805,8 @@ RL décident à la même fréquence.
 ### Évaluation et jeu live
 
 ```bash
-venv/bin/python evaluate_ai.py \
-  models_rl/aisub_v14_selfplay/best/best_model.zip \
+venv/bin/python -m rl.evaluate_ai \
+  rl/models_rl/aisub_v14_selfplay/best/best_model.zip \
   --maps combats,testCombats \
   --opponents submarine/autosub,destroyer/autodest --episodes 100
 ```
@@ -832,7 +832,7 @@ gelé et à un mélange équilibré de `submarine/autosub` et
 
 ```bash
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
-  venv/bin/python train_ai.py --config configs/aidest_v1.json \
+venv/bin/python -m rl.train_ai --config rl/configs/aidest_v1.json \
   --stage scripted --run-name aidest_v1_scripted --device cuda
 ```
 
@@ -845,7 +845,7 @@ gelé demeure dans le mélange d'adversaires.
 L'évaluation et le chargement live précisent la coque contrôlée :
 
 ```bash
-venv/bin/python evaluate_ai.py models_rl/aidest_v1_scripted/best/best_model.zip \
+venv/bin/python -m rl.evaluate_ai rl/models_rl/aidest_v1_scripted/best/best_model.zip \
   --agent-boat-type destroyer --opponents submarine/autosub,destroyer/autodest
 ```
 
@@ -864,9 +864,9 @@ sont réduits pour préserver les acquis du checkpoint :
 
 ```bash
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
-  venv/bin/python train_ai.py --config configs/aidest_v2.json \
+venv/bin/python -m rl.train_ai --config rl/configs/aidest_v2.json \
   --stage scripted --run-name aidest_v2_scripted \
-  --resume models_rl/aidest_v1_scripted/best/best_model.zip --device cuda
+  --resume rl/models_rl/aidest_v1_scripted/best/best_model.zip --device cuda
 ```
 
 #### Mines secondaires et télémétrie
@@ -885,7 +885,7 @@ les checkpoints destroyer précédents, v3 démarre une nouvelle politique :
 
 ```bash
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
-  venv/bin/python train_ai.py --config configs/aidest_v3.json \
+venv/bin/python -m rl.train_ai --config rl/configs/aidest_v3.json \
   --stage scripted --run-name aidest_v3_scripted --device cuda
 ```
 
@@ -895,10 +895,10 @@ distances de 600-1 200 m vers 600-2 000 m. L'évaluation indépendante couvre le
 deux familles d'adversaires :
 
 ```bash
-venv/bin/python evaluate_ai.py \
-  models_rl/aidest_v3_scripted/best/best_model.zip \
+venv/bin/python -m rl.evaluate_ai \
+  rl/models_rl/aidest_v3_scripted/best/best_model.zip \
   --agent-boat-type destroyer --opponents submarine/autosub \
-  --opponent-pools models_rl/aisub_v14_selfplay/best \
+  --opponent-pools rl/models_rl/aisub_v14_selfplay/best \
   --opponent-pool-boat-type submarine --episodes 100
 ```
 
@@ -924,9 +924,9 @@ complètes de 600-2 000 m :
 
 ```bash
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
-  venv/bin/python train_ai.py --config configs/aisub_v15.json \
+  venv/bin/python -m rl.train_ai --config rl/configs/aisub_v15.json \
   --stage scripted --run-name aisub_v15_scripted \
-  --resume models_rl/aisub_v14_selfplay/best/best_model.zip --device cuda
+  --resume rl/models_rl/aisub_v14_selfplay/best/best_model.zip --device cuda
 ```
 
 Après 3 millions d'étapes, six candidats ont été évalués sur les mêmes graines,
@@ -950,9 +950,9 @@ d'étapes :
 
 ```bash
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
-  venv/bin/python train_ai.py --config configs/aidest_v4.json \
+  venv/bin/python -m rl.train_ai --config rl/configs/aidest_v4.json \
   --stage scripted --run-name aidest_v4_scripted \
-  --resume models_rl/aidest_v3_scripted/best/best_model.zip --device cuda
+  --resume rl/models_rl/aidest_v3_scripted/best/best_model.zip --device cuda
 ```
 
 Après 2 millions d'étapes, le callback retient le checkpoint 300 k avec un

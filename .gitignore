@@ -9,7 +9,7 @@ logs/
 *.log
 *.log.*
 *.pid
-models_rl/
+rl/models_rl/
 
 # Certificats locaux et secrets
 certs/

@@ -18,9 +18,9 @@ from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.utils import get_schedule_fn
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecMonitor
 
-from evaluate_ai import evaluate as evaluate_policy
-from rl_control import control_spec
-from rl_env import SubmarineDuelEnv
+from rl.evaluate_ai import evaluate as evaluate_policy
+from rl.rl_control import control_spec
+from rl.rl_env import SubmarineDuelEnv
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -317,7 +317,7 @@ def configure_loaded_model(model: RecurrentPPO, config: Dict[str, Any]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default="configs/aisub_v14.json")
+    parser.add_argument("--config", default=str(BASE_DIR / "configs" / "aisub_v14.json"))
     parser.add_argument("--stage", choices=("scripted", "selfplay"), default="scripted")
     parser.add_argument("--run-name")
     parser.add_argument("--resume", help="checkpoint servant de point de départ")

@@ -2604,7 +2604,7 @@ def spawn_bot(boat_type, ai_name=None, team_id=None, team_name=None):
     init_mine_ammo_for_sid(sid)
     if rl_requested:
         try:
-            from rl_runtime import attach_controller
+            from rl.rl_runtime import attach_controller
             attach_controller(bot, selected_ai)
         except Exception:
             fallback_ai = "autodest" if boat_type == "destroyer" else "autosub"

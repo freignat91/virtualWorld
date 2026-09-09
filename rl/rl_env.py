@@ -12,8 +12,8 @@ import numpy as np
 from gymnasium import spaces
 
 import geometry
-from headless import HeadlessRunner
-from rl_control import (
+from rl.headless import HeadlessRunner
+from rl.rl_control import (
     apply_action,
     build_observation,
     contact_detected_index,

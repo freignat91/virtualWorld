@@ -32,7 +32,7 @@ simulation.py (état et règles autoritaires)
 ```
 
 La simulation principale vit dans `simulation.py` et ne dépend ni de Flask ni
-de Socket.IO. `headless.py` la réutilise directement pour les entraînements RL,
+de Socket.IO. `rl/headless.py` la réutilise directement pour les entraînements RL,
 ce qui garantit que les bots apprennent avec les mêmes règles que le serveur.
 
 ## Prérequis
@@ -96,7 +96,7 @@ Les journaux du serveur sont écrits dans `logs/server.log` avec rotation.
 Le script `update_server.sh` est conçu pour être lancé depuis la machine cible.
 Il met à jour la branche `main`, récupère par SSH les meilleurs modèles RL depuis
 la machine d'entraînement, vérifie leurs archives et les installe dans
-`models_rl/` :
+`rl/models_rl/` :
 
 ```bash
 ./update_server.sh
@@ -113,9 +113,10 @@ nouveau code et vider le cache des modèles RL.
 ## Tests
 
 ```bash
-.venv/bin/python -m unittest test_rl_pipeline.py
+.venv/bin/python -m unittest -v rl.test_rl_pipeline
 .venv/bin/python -m py_compile \
-  server.py simulation.py headless.py rl_control.py rl_env.py train_ai.py evaluate_ai.py
+  server.py simulation.py rl/headless.py rl/rl_control.py rl/rl_env.py \
+  rl/rl_runtime.py rl/train_ai.py rl/evaluate_ai.py
 ```
 
 Le dépôt ne possède pas encore de suite de tests navigateur automatisée. Les
@@ -127,7 +128,7 @@ Le pipeline utilise Gymnasium, Stable-Baselines3 et `RecurrentPPO` de
 SB3-Contrib. Les modèles peuvent affronter des Behavior Trees, une politique
 gelée ou une ligue de snapshots historiques.
 
-Consulter [TRAINING_RL.md](TRAINING_RL.md) pour :
+Consulter [rl/TRAINING_RL.md](rl/TRAINING_RL.md) pour :
 
 - comprendre les observations, les actions et les récompenses ;
 - lancer une phase scripted ou self-play ;
@@ -135,7 +136,7 @@ Consulter [TRAINING_RL.md](TRAINING_RL.md) pour :
 - comparer les politiques sur des graines identiques ;
 - charger un bot RL dans le serveur live.
 
-Les modèles et sorties d'entraînement vivent dans `models_rl/` et sont exclus de
+Les modèles et sorties d'entraînement vivent dans `rl/models_rl/` et sont exclus de
 Git en raison de leur taille.
 
 ## Structure du dépôt
@@ -145,15 +146,10 @@ Git en raison de leur taille.
 | `server.py` | Réseau, sessions, intents et boucle serveur |
 | `simulation.py` | Physique et règles autoritaires sans dépendance Flask |
 | `events.py` | Événements typés produits par la simulation |
-| `headless.py` | Adaptateur de simulation pour tests et RL |
 | `bot_ai.py` | Moteur de Behavior Trees |
 | `bots/ai/` | Définitions JSON des comportements |
-| `rl_control.py` | Observations et actions des politiques RL |
-| `rl_env.py` | Environnement Gymnasium de duel |
-| `train_ai.py` | Entraînement scripted et self-play |
-| `evaluate_ai.py` | Évaluation contre BT ou checkpoints RL |
-| `rl_runtime.py` | Chargement des politiques dans le serveur |
-| `configs/` | Configurations d'entraînement |
+| `rl/` | Pipeline RL : environnement, contrôle, entraînement, évaluation et modèles |
+| `rl/configs/` | Configurations d'entraînement RL |
 | `boats/` | Caractéristiques des navires |
 | `maps/` | Cartes et graphes de navigation |
 | `static/game.js` | Client BabylonJS |
@@ -161,7 +157,7 @@ Git en raison de leur taille.
 ## Documentation
 
 - [Architecture et règles techniques](TECHNIQUE.md)
-- [Entraînement des bots RL](TRAINING_RL.md)
+- [Entraînement des bots RL](rl/TRAINING_RL.md)
 
 ## Licence
 

@@ -8,7 +8,7 @@ from typing import Any, Dict
 
 import numpy as np
 
-from rl_control import apply_action, build_observation, control_version_for_spaces
+from rl.rl_control import apply_action, build_observation, control_version_for_spaces
 
 
 BASE_DIR = Path(__file__).resolve().parent

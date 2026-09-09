@@ -65,7 +65,7 @@ TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/virtualworld-models.XXXXXX")
 trap 'rm -rf "$TEMP_DIR"' EXIT
 
 for run_name in "${RUNS[@]}"; do
-    source_file="${SOURCE_ROOT%/}/models_rl/$run_name/best/best_model.zip"
+    source_file="${SOURCE_ROOT%/}/rl/models_rl/$run_name/best/best_model.zip"
     downloaded_file="$TEMP_DIR/$run_name.zip"
     echo "Telechargement de $run_name..."
     scp -- "$SOURCE_HOST:$source_file" "$downloaded_file"
@@ -73,7 +73,7 @@ for run_name in "${RUNS[@]}"; do
 done
 
 for run_name in "${RUNS[@]}"; do
-    target_dir="$TARGET_ROOT/models_rl/$run_name/best"
+    target_dir="$TARGET_ROOT/rl/models_rl/$run_name/best"
     mkdir -p "$target_dir"
     chmod 0644 "$TEMP_DIR/$run_name.zip"
     mv -f "$TEMP_DIR/$run_name.zip" "$target_dir/best_model.zip"

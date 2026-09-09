@@ -34,7 +34,8 @@ menaces sans accéder à l'état caché réel de l'adversaire.
 | `train_ai.py` | Vectorisation, PPO, callbacks, checkpoints et ligue |
 | `evaluate_ai.py` | Évaluation déterministe et télémétrie |
 | `rl_runtime.py` | Validation et exécution des modèles dans le jeu |
-| `configs/*.json` | Hyperparamètres et composition des duels |
+| `rl/configs/*.json` | Hyperparamètres et composition des duels |
+| `rl/configs/archive/` | Anciennes configurations incompatibles avec le chargeur actuel |
 
 ## Interfaces de contrôle
 
@@ -168,7 +169,9 @@ de 0,7 et une politique gelée à 0,5, la distribution effective est :
 
 ## Configuration
 
-Chaque fichier de `configs/` contient six sections obligatoires.
+Chaque configuration active de `rl/configs/` contient six sections obligatoires.
+Les versions historiques v4 à v12 sont conservées sous `rl/configs/archive/`
+pour l'analyse, mais ne doivent pas être relancées avec le chargeur actuel.
 
 | Section | Contenu |
 |---|---|
@@ -211,7 +214,7 @@ Vérifier CUDA :
 Exécuter les tests avant un run long :
 
 ```bash
-.venv/bin/python -m unittest test_rl_pipeline.py
+.venv/bin/python -m unittest -v rl.test_rl_pipeline
 ```
 
 ## Phase scripted
@@ -223,7 +226,7 @@ Sous-marin :
 
 ```bash
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
-  .venv/bin/python train_ai.py --config configs/aisub_v14.json \
+.venv/bin/python -m rl.train_ai --config rl/configs/aisub_v14.json \
   --stage scripted --run-name aisub_v14_scripted --device cuda
 ```
 
@@ -231,7 +234,7 @@ Destroyer avec mines :
 
 ```bash
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
-  .venv/bin/python train_ai.py --config configs/aidest_v3.json \
+.venv/bin/python -m rl.train_ai --config rl/configs/aidest_v3.json \
   --stage scripted --run-name aidest_v3_scripted --device cuda
 ```
 
@@ -239,9 +242,9 @@ Raffinement alterné du sous-marin contre le destroyer RL sélectionné :
 
 ```bash
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
-  .venv/bin/python train_ai.py --config configs/aisub_v15.json \
+.venv/bin/python -m rl.train_ai --config rl/configs/aisub_v15.json \
   --stage scripted --run-name aisub_v15_scripted \
-  --resume models_rl/aisub_v14_selfplay/best/best_model.zip --device cuda
+  --resume rl/models_rl/aisub_v14_selfplay/best/best_model.zip --device cuda
 ```
 
 `aisub_v15` conserve l'interface `sub_duel_v1`. La moitié des épisodes utilise
@@ -253,9 +256,9 @@ Raffinement alterné du destroyer contre le sous-marin v15 sélectionné :
 
 ```bash
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
-  .venv/bin/python train_ai.py --config configs/aidest_v4.json \
+.venv/bin/python -m rl.train_ai --config rl/configs/aidest_v4.json \
   --stage scripted --run-name aidest_v4_scripted \
-  --resume models_rl/aidest_v3_scripted/best/best_model.zip --device cuda
+  --resume rl/models_rl/aidest_v3_scripted/best/best_model.zip --device cuda
 ```
 
 Utiliser `--device cpu` sur une machine sans CUDA. La limitation des threads CPU
@@ -269,9 +272,9 @@ configuration. `n_steps`, `batch_size`, l'observation et l'action doivent rester
 compatibles.
 
 ```bash
-.venv/bin/python train_ai.py --config configs/aidest_v2.json \
+.venv/bin/python -m rl.train_ai --config rl/configs/aidest_v2.json \
   --stage scripted --run-name aidest_v2_scripted \
-  --resume models_rl/aidest_v1_scripted/best/best_model.zip --device cuda
+  --resume rl/models_rl/aidest_v1_scripted/best/best_model.zip --device cuda
 ```
 
 Le compteur d'étapes repart de zéro dans le nouveau run. Une interface modifiée,
@@ -285,9 +288,9 @@ adversaires fixes. Exemple sous-marin :
 
 ```bash
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
-  .venv/bin/python train_ai.py --config configs/aisub_v14.json \
+.venv/bin/python -m rl.train_ai --config rl/configs/aisub_v14.json \
   --stage selfplay --run-name aisub_v14_selfplay \
-  --resume models_rl/aisub_v14_scripted/best/best_model.zip --device cuda
+  --resume rl/models_rl/aisub_v14_scripted/best/best_model.zip --device cuda
 ```
 
 Pour améliorer les deux coques, préférer des phases alternées :
@@ -304,29 +307,29 @@ duel : l'adversaire changerait en permanence et déstabiliserait l'apprentissage
 ## Exécution en arrière-plan
 
 ```bash
-mkdir -p logs
+mkdir -p rl/logs
 nohup env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
-  .venv/bin/python train_ai.py --config configs/aidest_v3.json \
+.venv/bin/python -m rl.train_ai --config rl/configs/aidest_v3.json \
   --stage scripted --run-name aidest_v3_scripted --device cuda \
-  > logs/aidest_v3_scripted.log 2>&1 &
+  > rl/logs/aidest_v3_scripted.log 2>&1 &
 ```
 
 Suivre la progression :
 
 ```bash
-tail -f logs/aidest_v3_scripted.log
-pgrep -af "train_ai.py"
+tail -f rl/logs/aidest_v3_scripted.log
+pgrep -af "rl.train_ai"
 ```
 
 TensorBoard :
 
 ```bash
-.venv/bin/tensorboard --logdir models_rl
+.venv/bin/tensorboard --logdir rl/models_rl
 ```
 
 ## Fichiers produits
 
-Un run `models_rl/<run_name>/` contient :
+Un run `rl/models_rl/<run_name>/` contient :
 
 | Chemin | Contenu |
 |---|---|
@@ -368,8 +371,8 @@ Toujours utiliser les mêmes graines pour comparer deux checkpoints.
 Contre des Behavior Trees :
 
 ```bash
-.venv/bin/python evaluate_ai.py \
-  models_rl/aidest_v3_scripted/best/best_model.zip \
+.venv/bin/python -m rl.evaluate_ai \
+  rl/models_rl/aidest_v3_scripted/best/best_model.zip \
   --agent-boat-type destroyer --maps testCombats \
   --opponents submarine/autosub,destroyer/autodest \
   --episodes 100 --seed 60000 --device cuda
@@ -378,10 +381,10 @@ Contre des Behavior Trees :
 Contre une politique RL gelée :
 
 ```bash
-.venv/bin/python evaluate_ai.py \
-  models_rl/aidest_v3_scripted/best/best_model.zip \
+.venv/bin/python -m rl.evaluate_ai \
+  rl/models_rl/aidest_v3_scripted/best/best_model.zip \
   --agent-boat-type destroyer --maps testCombats --opponents "" \
-  --opponent-pools models_rl/aisub_v14_selfplay/best \
+  --opponent-pools rl/models_rl/aisub_v14_selfplay/best \
   --opponent-pool-boat-type submarine \
   --episodes 100 --seed 60000 --device cuda
 ```
@@ -427,7 +430,7 @@ d'incompatibilité, il journalise l'erreur et replie le bot sur `autosub` ou
 - Les positions initiales et la simulation headless sont réinitialisées à chaque
   épisode.
 - `effective_config.json` conserve les paramètres réellement employés.
-- `models_rl/` et `logs/` sont exclus de Git : sauvegarder les checkpoints
+- `rl/models_rl/` et `rl/logs/` sont exclus de Git : sauvegarder les checkpoints
   importants sur un stockage adapté avant de nettoyer une machine.
 
 ## Diagnostic
@@ -436,9 +439,9 @@ Si un run ne démarre pas :
 
 1. vérifier que le pool gelé contient au moins un fichier `.zip` ;
 2. vérifier la coque et la version de contrôle du checkpoint ;
-3. exécuter `test_rl_pipeline.py` ;
+3. exécuter `.venv/bin/python -m unittest -v rl.test_rl_pipeline` ;
 4. confirmer que CUDA est visible ou utiliser `--device cpu` ;
-5. lire la fin du journal et `models_rl/<run>/effective_config.json`.
+5. lire la fin du journal et `rl/models_rl/<run>/effective_config.json`.
 
 Les avertissements SB3 concernant `get_schedule_fn()` ou `constant_fn()` sont
 des dépréciations de bibliothèque et n'interrompent pas l'entraînement actuel.

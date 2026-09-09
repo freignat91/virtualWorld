@@ -10,8 +10,8 @@ from pathlib import Path
 import numpy as np
 from sb3_contrib import RecurrentPPO
 
-from rl_control import control_version_for_spaces
-from rl_env import SubmarineDuelEnv
+from rl.rl_control import control_version_for_spaces
+from rl.rl_env import SubmarineDuelEnv
 
 
 def evaluate(model: RecurrentPPO, map_name: str, boat_type: str, opponent_ai: str,

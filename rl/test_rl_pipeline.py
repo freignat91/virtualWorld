@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 import numpy as np
 
-from headless import HeadlessRunner
-from rl_control import (
+from rl.headless import HeadlessRunner
+from rl.rl_control import (
     DESTROYER_ACTION_NVECS,
     DESTROYER_OBS_DIM,
     DESTROYER_OBSERVATION_VERSION,
@@ -59,7 +59,7 @@ class GymEnvironmentTest(unittest.TestCase):
 
     def test_environment_reset_and_truncation(self) -> None:
         from stable_baselines3.common.env_checker import check_env
-        from rl_env import SubmarineDuelEnv
+        from rl.rl_env import SubmarineDuelEnv
 
         env = SubmarineDuelEnv(
             seed=11, frame_skip=5, max_physics_steps=10,
@@ -80,7 +80,7 @@ class GymEnvironmentTest(unittest.TestCase):
 
     def test_recurrent_ppo_smoke_training(self) -> None:
         from sb3_contrib import RecurrentPPO
-        from rl_env import SubmarineDuelEnv
+        from rl.rl_env import SubmarineDuelEnv
 
         env = SubmarineDuelEnv(
             seed=13, frame_skip=2, max_physics_steps=20,
@@ -99,8 +99,8 @@ class GymEnvironmentTest(unittest.TestCase):
 
     def test_match_score_evaluation_saves_best_model(self) -> None:
         from sb3_contrib import RecurrentPPO
-        from rl_env import SubmarineDuelEnv
-        from train_ai import MatchScoreEvalCallback, match_score, weighted_match_score
+        from rl.rl_env import SubmarineDuelEnv
+        from rl.train_ai import MatchScoreEvalCallback, match_score, weighted_match_score
 
         low = {"episodes": 10, "wins": 2, "losses": 6, "draws": 2}
         high = {"episodes": 10, "wins": 6, "losses": 2, "draws": 2}
@@ -148,7 +148,7 @@ class GymEnvironmentTest(unittest.TestCase):
             env.close()
 
     def test_destroyer_opponent_is_spawned_explicitly(self) -> None:
-        from rl_env import SubmarineDuelEnv
+        from rl.rl_env import SubmarineDuelEnv
 
         env = SubmarineDuelEnv(
             opponents=[{"boat_type": "destroyer", "ai": "autodest", "weight": 1.0}],
@@ -165,7 +165,7 @@ class GymEnvironmentTest(unittest.TestCase):
             env.close()
 
     def test_destroyer_agent_uses_its_own_spaces(self) -> None:
-        from rl_env import SubmarineDuelEnv
+        from rl.rl_env import SubmarineDuelEnv
 
         env = SubmarineDuelEnv(
             agent_boat_type="destroyer",
@@ -230,7 +230,7 @@ class GymEnvironmentTest(unittest.TestCase):
         self.assertEqual(39, runner.legacy.mine_ammo[destroyer_sid]["suspended"])
 
     def test_destroyer_v2_agent_exposes_mine_controls(self) -> None:
-        from rl_env import SubmarineDuelEnv
+        from rl.rl_env import SubmarineDuelEnv
 
         env = SubmarineDuelEnv(
             agent_boat_type="destroyer", control_version=DESTROYER_OBSERVATION_VERSION,
@@ -247,7 +247,7 @@ class GymEnvironmentTest(unittest.TestCase):
 
     def test_destroyer_smoke_training_against_frozen_submarine(self) -> None:
         from sb3_contrib import RecurrentPPO
-        from rl_env import SubmarineDuelEnv
+        from rl.rl_env import SubmarineDuelEnv
 
         with TemporaryDirectory() as directory:
             pool_dir = Path(directory)
@@ -284,7 +284,7 @@ class GymEnvironmentTest(unittest.TestCase):
 
     def test_submarine_smoke_training_against_frozen_destroyer(self) -> None:
         from sb3_contrib import RecurrentPPO
-        from rl_env import SubmarineDuelEnv
+        from rl.rl_env import SubmarineDuelEnv
 
         with TemporaryDirectory() as directory:
             pool_dir = Path(directory)
@@ -320,7 +320,7 @@ class GymEnvironmentTest(unittest.TestCase):
                 submarine_env.close()
 
     def test_invalid_opponent_configuration_is_rejected(self) -> None:
-        from rl_env import SubmarineDuelEnv
+        from rl.rl_env import SubmarineDuelEnv
 
         with self.assertRaises(ValueError):
             SubmarineDuelEnv(opponents=[])
@@ -332,7 +332,7 @@ class GymEnvironmentTest(unittest.TestCase):
                 opponents=[{"boat_type": "submarine", "ai": "autosub", "weight": 0.0}])
 
     def test_weighted_opponent_sequence_is_seeded(self) -> None:
-        from rl_env import SubmarineDuelEnv
+        from rl.rl_env import SubmarineDuelEnv
 
         opponents = [
             {"boat_type": "submarine", "ai": "autosub", "weight": 1.0},
@@ -354,7 +354,7 @@ class GymEnvironmentTest(unittest.TestCase):
         self.assertEqual({"submarine", "destroyer"}, set(sequences[0]))
 
     def test_unknown_behavior_tree_fails_on_reset(self) -> None:
-        from rl_env import SubmarineDuelEnv
+        from rl.rl_env import SubmarineDuelEnv
 
         env = SubmarineDuelEnv(
             opponents=[{"boat_type": "submarine", "ai": "missing", "weight": 1.0}])
