@@ -111,7 +111,11 @@ def main() -> None:
     args = parser.parse_args()
     try:
         count = sync_models(args.source_host, args.source_root, args.target)
-    except (ValueError, OSError, subprocess.CalledProcessError, zipfile.BadZipFile) as exc:
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or "").strip()
+        parser.exit(1, f"Synchronisation RL annulee: {exc}\n"
+                    + (f"{detail}\n" if detail else ""))
+    except (ValueError, OSError, zipfile.BadZipFile) as exc:
         parser.exit(1, f"Synchronisation RL annulee: {exc}\n")
     print(f"{count} modeles ZIP installes; aucun artefact cible supprime.")
 

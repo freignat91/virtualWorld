@@ -1,6 +1,7 @@
 """Tests de configuration et de copie, sans serveur ni connexion distante."""
 
 import ast
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -80,6 +81,21 @@ class ModelConfigTest(unittest.TestCase):
 
 
 class SyncModelsTest(unittest.TestCase):
+    def test_cli_reports_ssh_error(self) -> None:
+        from rl.sync_models import main
+
+        error = subprocess.CalledProcessError(
+            255, ["ssh", "user@host"],
+            stderr="Permission denied (publickey).\n")
+        with patch("sys.argv", ["sync_models", "user@host", "/source", "/target"]), \
+                patch("rl.sync_models.sync_models", side_effect=error), \
+                patch("sys.stderr", new_callable=io.StringIO) as stderr:
+            with self.assertRaises(SystemExit) as raised:
+                main()
+            self.assertEqual(1, raised.exception.code)
+            self.assertIn("Permission denied (publickey).", stderr.getvalue())
+            self.assertIn("255", stderr.getvalue())
+
     def test_untrusted_paths_and_source(self) -> None:
         for manifest in ([], {}, ["../run/a.zip"], ["/run/a.zip"], ["run//a.zip"],
                          ["run/../a.zip"], ["run/a.zip", "run/a.zip"], ["run/a;bad.zip"]):
