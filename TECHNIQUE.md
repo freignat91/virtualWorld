@@ -762,6 +762,59 @@ toujours un sous-marin ; elle affronte à parts égales `submarine/autosub` et
 `destroyer/autodest`. Les impacts du canon des destroyers sont résolus selon
 l'horloge de simulation et consomment les munitions comme sur le serveur live.
 
+Le canon du destroyer RL (v1/v2) applique maintenant le seuil de profondeur cible
+de `server.py::fire_cannon_intent` : refus si
+`y < -boat.get("flotation", 2) / UNIT_METERS_BOT - 0.05`, limite exacte incluse
+dans les tirs autorises (2,5 m pour une flottaison de 2 m, ancien seuil RL 6 m).
+La regression `rl/test_fairness_diagnostics.py` utilise Sim/headless et verifie
+notamment l'absence de consommation et de degats differes sur refus ; elle
+n'execute pas le handler reseau. Sonar, torpilles et reward ne sont pas modifies.
+Les shapes d'observation/action restent compatibles avec les checkpoints, mais
+les metriques de resultat avant/apres ne sont pas directement comparables :
+reevaluer candidats et references sous les memes regles corrigees.
+
+Les menaces torpilles RL (sous-marin, destroyer v1/v2) suivent le radar strict
+choisi par l'utilisateur : portee horizontale de la coque (defaut 30000 m,
+egalite incluse), LOS locale et aucune thermocline croisee, avant selection.
+`rl_control.py::_torpedo_observation` reutilise les helpers geometriques, avec
+un complement local de samples LOS `ceil` du client en plus du `floor` Python
+(eligibilite conservative). Selection par ETA plane sur 10 s et CPA <= 200 m,
+sans inclusion ni priorite issue du verrou serveur ; egalites stables.
+Les slots verrou exact et type sont toujours zero : ces informations ennemies
+ne sont pas exposees telles quelles au joueur. Cela remplace la correction
+anterieure de collision `(ownerPlayerId, tid)`. Pas de fullmap ni relais allie.
+Regressions Sim/headless et limites de timing/vitesse dans `rl/AUDIT_FOLLOWUP.md`.
+Sim/BT, sonar, rewards, shapes et versions inchanges ; checkpoints chargeables
+mais semantique et trajectoires differentes : reevaluer candidats et references
+plus tard, sans comparer directement les anciens scores.
+
+Le sonar actif RL (destroyer v1/v2) utilise maintenant le ping local humain comme
+reference, via `Sim.bot_sonar_ping(..., timed=True)` puis `Sim.step`, en headless
+comme en live. Emission d'un seul `SonarPinged`, sans lecture des cibles a l'emission.
+Le front parcourt la portee large en 5 s ; expiration stricte a `elapsed >= 5`.
+Avec la coque actuelle (30 degres, 8000 m), une cible immobile a 1000/4000 m
+est eligible a 0,625/2,5 s, au premier tick disponible ; a 8000 m exactement,
+le ping expire avant de pouvoir l'acquerir. Ce n'est pas un aller-retour acoustique.
+Position et orientation d'emission sont figees, mais cible, LOS et thermoclines
+sont reexaminees pendant la propagation. Un seul tirage de penetration par
+ping/cible traversee ; aucune chance liee au bruit/vitesse. Portee de revelation
+depuis l'emetteur courant uniquement (pas de relais allie). LOS Python plus
+samples ceil du navigateur, conservatrice comme le radar strict.
+
+Une acquisition donne 10 s de positions courantes, meme hors cone/portee/LOS
+ensuite, sans prolongation a chaque tick. Les observations choisissent le contact
+le plus proche parmi passif et actif. A expiration, la derniere position observee
+reste memorisee 30 s, sans suivi ni tir par le contact sonar expire, meme s'il a
+moins d'une seconde. Un ping ne permet donc plus d'acquerir et tirer dans la meme
+action ; un contact deja acquis par ailleurs peut toujours permettre le tir.
+Cooldown RL de 30 s, shapes, versions, coefficients de reward et contrat BT
+synchrone inchanges. Pending/revelations sont effaces par `Sim.reset`.
+Les metriques doivent etre reevaluees pour candidats et references ; les anciens
+checkpoints chargent encore, mais leurs resultats restent historiques.
+Tests : `rl/test_active_sonar.py` et regressions fairness/pipeline. Le navigateur,
+son interpolation/reseau et le bug d'unites des pings recus/allies restent hors
+perimetre ; aucune revendication de parite globale avec les BT ou les humains.
+
 Un bot RL porte `external_control=true`. Dans ce mode, `Sim.update_bot()`
 n'exécute aucun Behavior Tree et aucun tir réactif. La politique fixe seulement
 les commandes ; `Sim.update_bot_external()` applique la physique à 20 Hz. La

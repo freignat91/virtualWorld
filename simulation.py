@@ -23,6 +23,7 @@ import random
 import time
 
 import events as ev_mod
+import geometry
 from debug_log import dlog
 
 
@@ -297,6 +298,8 @@ class Sim:
 
         # Impacts canon différés selon l'horloge de simulation.
         self._pending_cannon_hits: List[Dict[str, Any]] = []
+        self._pending_sonar_pings: List[Dict[str, Any]] = []
+        self._sonar_reveals: Dict[Tuple[str, str], Dict[str, Any]] = {}
 
         # Hooks legacy.
         self._legacy = None
@@ -2374,10 +2377,12 @@ class Sim:
         ))
         return True
 
-    def bot_sonar_ping(self, bot: Dict[str, Any], world_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def bot_sonar_ping(self, bot: Dict[str, Any], world_data: Dict[str, Any],
+                       *, timed: bool = False) -> List[Dict[str, Any]]:
         """Ping sonar actif d'un bot. Émet l'event SonarPinged (broadcast clients),
         détecte les joueurs/bots dans le cône large + LOS, marque les bots ciblés
-        comme pingés. Retourne la liste des cibles détectées [{id, x, z, dist_m}]."""
+        comme pingés. Retourne la liste des cibles détectées [{id, x, z, dist_m}].
+        Avec timed=True, retourne [] et differe l'acquisition dans Sim.step."""
         legacy = self._legacy
         line_of_sight_clear = legacy.line_of_sight_clear
         count_thermoclines = legacy.count_thermoclines_crossed
@@ -2403,6 +2408,17 @@ class Sim:
         ))
         bb = bot.setdefault("bb", {})
         bb["last_ping_at"] = now
+
+        if timed:
+            # Le RL attend le front ; le contrat synchrone des BT reste intact.
+            self._pending_sonar_pings.append({
+                "bot": bot, "at": now, "x": bx, "y": by, "z": bz,
+                "range": detect_u, "reveal": reveal_m / UNIT_METERS_BOT,
+                "half_cos": half_cos, "fwd_x": fwd_x, "fwd_z": fwd_z,
+                "penetration": float(active_sonar.get("thermoclinePenetration", 0)),
+                "rolls": {},
+            })
+            return []
 
         def _in_cone(tx, tz, dist_sq):
             if cone_deg >= 360 or dist_sq <= 0:
@@ -2469,6 +2485,90 @@ class Sim:
                     obb["pinged_at"] = now
                     obb["pinged_by_pos"] = {"x": bx, "z": bz, "id": bot["id"]}
         return detected
+
+    def update_active_sonar(self, world_data: Dict[str, Any]) -> None:
+        """Front du ping local humain : 5 s strictes, puis revelation de 10 s."""
+        now = self.now()
+        for key, reveal in list(self._sonar_reveals.items()):
+            observer, target = reveal["bot"], reveal["target"]
+            registry = self.bots if target.get("is_bot") else self.players
+            if (now >= reveal["until"] or observer.get("sunk") or target.get("sunk")
+                    or self.bots.get(observer["sid"]) is not observer
+                    or registry.get(reveal["sid"]) is not target):
+                del self._sonar_reveals[key]
+        pending = []
+        for ping in self._pending_sonar_pings:
+            bot = ping["bot"]
+            elapsed = now - ping["at"]
+            if elapsed >= 5.0 or bot.get("sunk") or self.bots.get(bot["sid"]) is not bot:
+                continue
+            pending.append(ping)
+            if elapsed <= 0:
+                continue
+            front = elapsed / 5.0 * ping["range"]
+            targets = [(sid, p) for sid, p in self.players.items() if not p.get("is_bot")]
+            targets.extend(self.bots.items())
+            for sid, target in targets:
+                if target is bot or target.get("sunk") or same_team(bot, target):
+                    continue
+                pos = target.get("position") or {}
+                x, y, z = pos.get("x", 0), pos.get("y", 0), pos.get("z", 0)
+                dx, dz = x - ping["x"], z - ping["z"]
+                distance = math.hypot(dx, dz)
+                if distance > front or distance > ping["range"]:
+                    continue
+                if distance > 0 and (dx * ping["fwd_x"] + dz * ping["fwd_z"]) / distance < ping["half_cos"]:
+                    continue
+                if not geometry.line_of_sight_clear(ping["x"], ping["z"], x, z, world_data):
+                    continue
+                # Completer floor par les samples ceil du navigateur, sans changer les BT.
+                steps = max(2, math.ceil(distance / 5.0))
+                if world_data.get("islands") and any(
+                        geometry.point_on_any_island(ping["x"] + dx * i / steps,
+                                                     ping["z"] + dz * i / steps, world_data)
+                        for i in range(1, steps)):
+                    continue
+                if geometry.count_thermoclines_crossed(
+                        ping["x"], ping["y"], ping["z"], x, y, z, world_data, UNIT_METERS_BOT) > 0:
+                    if target["id"] not in ping["rolls"]:
+                        ping["rolls"][target["id"]] = (
+                            ping["penetration"] > 0 and random.random() < ping["penetration"])
+                    if not ping["rolls"][target["id"]]:
+                        continue
+                origin = bot["position"]
+                if math.hypot(x - origin["x"], z - origin["z"]) > ping["reveal"]:
+                    continue
+                key = (bot["sid"], target["id"])
+                if key not in self._sonar_reveals:
+                    self._sonar_reveals[key] = {
+                        "bot": bot, "target": target, "sid": sid, "until": now + 10.0,
+                    }
+                    if target.get("is_bot"):
+                        bb = target.setdefault("bb", {})
+                        bb["pinged_at"] = now
+                        bb["pinged_by_pos"] = {"x": ping["x"], "z": ping["z"], "id": bot["id"]}
+        self._pending_sonar_pings = pending
+
+    def active_sonar_contacts(self, bot: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Positions courantes uniquement pendant une revelation deja acquise."""
+        contacts = []
+        for reveal in self._sonar_reveals.values():
+            target = reveal["target"]
+            registry = self.bots if target.get("is_bot") else self.players
+            if (reveal["bot"] is not bot or self.now() >= reveal["until"]
+                    or bot.get("sunk") or target.get("sunk")
+                    or self.bots.get(bot["sid"]) is not bot
+                    or registry.get(reveal["sid"]) is not target):
+                continue
+            pos = target["position"]
+            contacts.append({
+                "id": target["id"], "sid": reveal["sid"],
+                "x": pos["x"], "y": pos.get("y", 0), "z": pos["z"],
+                "dist_m": math.hypot(pos["x"] - bot["position"]["x"],
+                                     pos["z"] - bot["position"]["z"]) * UNIT_METERS_BOT,
+                "active_detected_until": reveal["until"],
+            })
+        return contacts
 
     def spawn_bot_torpedo(self, bot: Dict[str, Any], target_player: Dict[str, Any]) -> bool:
         """Lance une torpille tirée par un bot (même simu serveur que les humains)."""
@@ -3235,6 +3335,7 @@ class Sim:
         if not world_data:
             return
         self.update_pending_cannon_hits()
+        self.update_active_sonar(world_data)
         self.update_server_torpedoes(dt, world_data)
         self.update_server_drones(dt, world_data)
         self.update_server_grenades(dt, world_data)
@@ -3315,6 +3416,8 @@ class Sim:
         self._active_wire.clear()
         self._events.clear()
         self._pending_cannon_hits.clear()
+        self._pending_sonar_pings.clear()
+        self._sonar_reveals.clear()
         self._danger_zones_cache = {"world_id": None, "zones": []}
         self.t = self.now()
 

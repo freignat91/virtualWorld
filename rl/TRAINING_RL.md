@@ -401,6 +401,31 @@ contacts, leurres et sonars. Pour les destroyers, elle détaille aussi :
 Une évaluation robuste doit séparer chaque adversaire. Une moyenne agrégée peut
 masquer une faiblesse importante contre une coque précise.
 
+### Rapport traçable opt-in
+
+Ajouter `--report` pour remplacer la liste JSON historique par un objet contenant
+`report_version`, `seed`, `deterministic`, les manifestes SHA-256 `model` et
+`config`, et la liste `results`. Sans ce drapeau, la sortie agrégée reste inchangée.
+Chaque résultat détaillé ajoute les paramètres effectifs `env`, le manifeste des
+adversaires `opponent_manifest` (BT ou checkpoints visibles du pool), et
+`episode_results` : graine, issue, récompense, HP finaux, statistiques terminales,
+identité adverse, `terminated`, `truncated` et `length` en décisions RL ;
+`physics_steps` compte séparément les pas physiques.
+
+`--config rl/configs/aidest_v4.json` reprend la coque, la version de contrôle,
+les récompenses, `frame_skip`, `max_physics_steps`, `spawn_min_m` et `spawn_max_m`.
+Le curriculum reste désactivé, comme pendant l'évaluation d'entraînement ; les
+cartes et adversaires restent définis par les options CLI, pas par la config.
+Une coque CLI contradictoire ou des espaces de modèle incompatibles avec la
+coque/version configurée provoquent une erreur. Les récompenses omises sont
+complétées par les valeurs par défaut et consignées dans `env.reward`.
+
+Rediriger stdout avec `--report > rapport.json` pour conserver le rapport.
+Garder les artefacts et pools gelés pendant toute l'évaluation : les empreintes
+sont calculées avant les épisodes, sans copie ni verrouillage des fichiers.
+Pour l'API Python, utiliser `evaluate(..., include_episodes=True)` ; le manifeste
+du modèle chargé appartient au rapport CLI, car l'API reçoit un modèle en mémoire.
+
 ## Chargement dans le jeu
 
 Sans checkpoint explicite, `rl_runtime.py` cherche d'abord

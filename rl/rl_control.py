@@ -95,6 +95,7 @@ def _update_contact(bot: Dict[str, Any], sim: simulation.Sim,
                     world: Dict[str, Any]) -> Tuple[Dict[str, Any] | None, bool]:
     now = sim.now()
     detected = sim.detect_enemies_passive(bot, world)
+    detected = detected + sim.active_sonar_contacts(bot)
     if detected:
         nearest = min(detected, key=lambda item: float(item.get("dist_m", float("inf"))))
         contact = {
@@ -103,14 +104,15 @@ def _update_contact(bot: Dict[str, Any], sim: simulation.Sim,
             "z": float(nearest["z"]), "at": now,
             "noise": float(nearest.get("noise_perceived", 0.0)),
         }
+        if "active_detected_until" in nearest:
+            contact["active_detected_until"] = nearest["active_detected_until"]
         bot["rl_contact"] = contact
         return contact, True
     contact = bot.get("rl_contact")
     if contact is None or now - float(contact.get("at", 0.0)) > CONTACT_MEMORY_S:
         bot.pop("rl_contact", None)
         return None, False
-    active_until = contact.get("active_detected_until")
-    return contact, active_until is not None and now <= float(active_until)
+    return contact, False
 
 
 def _ray_distances(bot: Dict[str, Any], world: Dict[str, Any]) -> Iterable[float]:
@@ -134,6 +136,62 @@ def _ray_distances(bot: Dict[str, Any], world: Dict[str, Any]) -> Iterable[float
                 break
             distance += step_u
         yield _clip(distance / ray_max_u, 0.0, 1.0)
+
+
+def _torpedo_observation(bot: Dict[str, Any], sim: simulation.Sim,
+                         world: Dict[str, Any]) -> Tuple[float, ...]:
+    """Radar local strict ; CPA/ETA cinematiques, sans verrou ni type prive."""
+    pos = bot["position"]
+    bx, by, bz = pos["x"], pos.get("y", 0.0), pos["z"]
+    range_u = float((bot.get("boat") or {}).get("radarRangeMeters", 30000)) / simulation.UNIT_METERS_BOT
+    result = (0.0,) * 7
+    best_eta = float("inf")
+    for torpedo in sim.torpedoes.values():
+        if torpedo.get("ownerPlayerId") == bot.get("id"):
+            continue
+        tx, tz = torpedo["x"], torpedo["z"]
+        dx, dz = tx - bx, tz - bz
+        if dx * dx + dz * dz > range_u * range_u:
+            continue
+        if not geometry.line_of_sight_clear(bx, bz, tx, tz, world):
+            continue
+        distance_u = math.hypot(dx, dz)
+        # Le client utilise ceil, le helper partage floor : exiger les deux
+        # grilles evite une fuite sans modifier la geometrie des autres systemes.
+        steps = max(2, math.ceil(distance_u / 5.0))
+        if world.get("islands") and steps != max(2, int(distance_u / 5.0)) and any(
+            geometry.point_on_any_island(bx + dx * i / steps, bz + dz * i / steps, world)
+            for i in range(1, steps)
+        ):
+            continue
+        if geometry.count_thermoclines_crossed(
+            bx, by, bz, tx, torpedo.get("y", 0.0), tz, world,
+            simulation.UNIT_METERS_BOT,
+        ):
+            continue
+        # Meme approximation plane que Sim.bot_torpedoes_threat, mais aucune
+        # inclusion/priorite/ETA speciale issue d'acquiredBoatId.
+        speed = torpedo.get("speed", 0.0)
+        if speed <= 0.001:
+            continue
+        t_raw, cpa = geometry.closest_approach_on_segment(
+            bx, bz, tx, tz,
+            tx + torpedo.get("dirX", 0.0) * speed * 10.0,
+            tz + torpedo.get("dirZ", 0.0) * speed * 10.0,
+        )
+        if cpa * simulation.UNIT_METERS_BOT > 200.0:
+            continue
+        eta = max(0.0, min(10.0, t_raw * 10.0))
+        if eta >= best_eta:
+            continue
+        best_eta = eta
+        forward, right = _relative_to_boat(bot, tx, tz)
+        # Slots historiques conserves : verrou exact et type restent inconnus,
+        # meme pour les torpilles alliees (aucune classification necessaire).
+        result = (1.0, _clip(forward / 200.0), _clip(right / 200.0),
+                  eta / 10.0, 0.0, 0.0,
+                  _clip(distance_u * simulation.UNIT_METERS_BOT / 2000.0, 0.0, 1.0))
+    return result
 
 
 def _build_submarine_observation(bot: Dict[str, Any], sim: simulation.Sim,
@@ -181,19 +239,7 @@ def _build_submarine_observation(bot: Dict[str, Any], sim: simulation.Sim,
         obs[15] = _clip(-float(contact.get("y", 0.0)) / max_depth_u, 0.0, 1.0)
         obs[16] = _clip(float(contact.get("noise", 0.0)) / 20.0, 0.0, 1.0)
 
-    threats = sim.bot_torpedoes_threat(bot)
-    if threats:
-        threat = threats[0]
-        forward, right = _relative_to_boat(bot, float(threat["x"]), float(threat["z"]))
-        obs[17] = 1.0
-        obs[18] = _clip(forward / 200.0)
-        obs[19] = _clip(right / 200.0)
-        obs[20] = _clip(float(threat.get("eta_s", 10.0)) / 10.0, 0.0, 1.0)
-        obs[21] = 1.0 if any(
-            t.get("tid") == threat.get("tid") and t.get("acquiredBoatId") == bot.get("id")
-            for t in sim.torpedoes.values()) else 0.0
-        obs[22] = 1.0 if threat.get("kind") == "acoustic" else -1.0
-        obs[23] = _clip(float(threat.get("dist_m", 2000.0)) / 2000.0, 0.0, 1.0)
+    obs[17:24] = _torpedo_observation(bot, sim, world)
 
     obs[24:32] = tuple(_ray_distances(bot, world))
     return obs
@@ -254,19 +300,7 @@ def _build_destroyer_observation(bot: Dict[str, Any], sim: simulation.Sim,
         obs[19] = _clip(-float(contact.get("y", 0.0)) / 50.0, 0.0, 1.0)
         obs[20] = _clip(float(contact.get("noise", 0.0)) / 20.0, 0.0, 1.0)
 
-    threats = sim.bot_torpedoes_threat(bot)
-    if threats:
-        threat = threats[0]
-        forward, right = _relative_to_boat(bot, float(threat["x"]), float(threat["z"]))
-        obs[21] = 1.0
-        obs[22] = _clip(forward / 200.0)
-        obs[23] = _clip(right / 200.0)
-        obs[24] = _clip(float(threat.get("eta_s", 10.0)) / 10.0, 0.0, 1.0)
-        obs[25] = 1.0 if any(
-            item.get("tid") == threat.get("tid") and item.get("acquiredBoatId") == bot.get("id")
-            for item in sim.torpedoes.values()) else 0.0
-        obs[26] = 1.0 if threat.get("kind") == "acoustic" else -1.0
-        obs[27] = _clip(float(threat.get("dist_m", 2000.0)) / 2000.0, 0.0, 1.0)
+    obs[21:28] = _torpedo_observation(bot, sim, world)
 
     obs[28:36] = tuple(_ray_distances(bot, world))
     return obs
@@ -309,6 +343,8 @@ def build_observation(bot: Dict[str, Any], sim: simulation.Sim,
 def _contact_target(bot: Dict[str, Any], sim: simulation.Sim) -> Dict[str, Any] | None:
     contact = bot.get("rl_contact")
     if contact is None or sim.now() - float(contact.get("at", 0.0)) > CONTACT_FIRE_MAX_AGE_S:
+        return None
+    if sim.now() >= float(contact.get("active_detected_until", float("inf"))):
         return None
     target_id = contact.get("id")
     for player in sim.players.values():
@@ -382,30 +418,6 @@ def _apply_submarine_action(bot: Dict[str, Any], sim: simulation.Sim,
     return result
 
 
-def _remember_active_contact(bot: Dict[str, Any], sim: simulation.Sim,
-                             detected: Sequence[Dict[str, Any]]) -> None:
-    """Mémorise le contact actif le plus proche sans exposer les autres cibles."""
-    if not detected:
-        return
-    nearest = min(detected, key=lambda item: float(item.get("dist_m", float("inf"))))
-    target = next(
-        (player for player in sim.players.values() if player.get("id") == nearest.get("id")),
-        None,
-    )
-    position = (target or {}).get("position") or nearest
-    now = sim.now()
-    bot["rl_contact"] = {
-        "id": nearest["id"],
-        "sid": (target or {}).get("sid"),
-        "x": float(nearest["x"]),
-        "y": float(position.get("y", 0.0)),
-        "z": float(nearest["z"]),
-        "at": now,
-        "noise": 0.0,
-        "active_detected_until": now + 0.25,
-    }
-
-
 def _apply_destroyer_action(bot: Dict[str, Any], sim: simulation.Sim,
                             action: Sequence[int]) -> Dict[str, Any]:
     """Applique les commandes, armes de surface et sonar du destroyer."""
@@ -440,7 +452,7 @@ def _apply_destroyer_action(bot: Dict[str, Any], sim: simulation.Sim,
         bb = bot.setdefault("bb", {})
         if now >= float(bb.get("next_sonar_ping_at", 0.0)):
             bb["next_sonar_ping_at"] = now + 30.0
-            _remember_active_contact(bot, sim, sim.bot_sonar_ping(bot, sim.world_data))
+            sim.bot_sonar_ping(bot, sim.world_data, timed=True)
             result["sonar_pinged"] = True
 
     if weapon_i in (1, 2):
@@ -467,7 +479,10 @@ def _apply_destroyer_action(bot: Dict[str, Any], sim: simulation.Sim,
         if now >= float(bot.get("next_cannon_at", 0.0)):
             target = _contact_target(bot, sim)
             target_y = float((target or {}).get("position", {}).get("y", 0.0))
-            if target is None or target_y < -0.6:
+            target_boat = (target or {}).get("boat") or {}
+            target_surface_y = -target_boat.get("flotation", 2) / simulation.UNIT_METERS_BOT
+            # Meme seuil que server.fire_cannon_intent, limite exacte incluse.
+            if target is None or target_y < target_surface_y - 0.05:
                 result["weapon_invalid"] = True
             else:
                 result["weapon_fired"] = sim.bot_fire_cannon(bot, target)

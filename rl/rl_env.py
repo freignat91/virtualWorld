@@ -13,6 +13,7 @@ from gymnasium import spaces
 
 import geometry
 from rl.headless import HeadlessRunner
+from rl.rng import preserve_rng_state
 from rl.rl_control import (
     apply_action,
     build_observation,
@@ -189,7 +190,8 @@ class SubmarineDuelEnv(gym.Env):
         if cached is None:
             from sb3_contrib import RecurrentPPO
 
-            cached = RecurrentPPO.load(path, device="cpu")
+            with preserve_rng_state():
+                cached = RecurrentPPO.load(path, device="cpu")
             self._model_cache[path] = cached
             while len(self._model_cache) > 3:
                 self._model_cache.popitem(last=False)

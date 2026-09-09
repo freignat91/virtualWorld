@@ -309,6 +309,9 @@ def configure_loaded_model(model: RecurrentPPO, config: Dict[str, Any]) -> None:
     model.n_epochs = int(training["n_epochs"])
     model.gamma = float(training["gamma"])
     model.gae_lambda = float(training["gae_lambda"])
+    # Le buffer construit au chargement conserve ses propres paramètres GAE.
+    model.rollout_buffer.gamma = model.gamma
+    model.rollout_buffer.gae_lambda = model.gae_lambda
     model.clip_range = get_schedule_fn(float(training["clip_range"]))
     model.ent_coef = float(training["ent_coef"])
     model.vf_coef = float(training["vf_coef"])

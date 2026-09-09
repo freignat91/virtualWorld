@@ -97,6 +97,37 @@ class GymEnvironmentTest(unittest.TestCase):
         finally:
             env.close()
 
+    def test_resume_updates_rollout_discount_parameters(self) -> None:
+        from sb3_contrib import RecurrentPPO
+        from rl.rl_env import SubmarineDuelEnv
+        from rl.train_ai import configure_loaded_model
+
+        env = SubmarineDuelEnv(seed=13, max_physics_steps=20)
+        try:
+            model = RecurrentPPO(
+                "MlpLstmPolicy", env, n_steps=8, batch_size=8, n_epochs=1,
+                gamma=0.99, gae_lambda=0.95,
+                policy_kwargs={"net_arch": [16], "lstm_hidden_size": 16},
+                device="cpu", seed=13, verbose=0)
+            with TemporaryDirectory() as directory:
+                path = Path(directory) / "policy.zip"
+                model.save(path)
+                loaded = RecurrentPPO.load(path, env=env, device="cpu")
+                configure_loaded_model(loaded, {"training": {
+                    "n_steps": 8, "batch_size": 8, "learning_rate": 0.00005,
+                    "n_epochs": 1, "gamma": 0.9, "gae_lambda": 0.8,
+                    "clip_range": 0.2, "ent_coef": 0.003,
+                    "vf_coef": 0.5, "max_grad_norm": 0.5,
+                }})
+                self.assertEqual(0.9, loaded.rollout_buffer.gamma)
+                self.assertEqual(0.8, loaded.rollout_buffer.gae_lambda)
+                loaded.rollout_buffer.reset()
+                self.assertEqual(loaded.gamma, loaded.rollout_buffer.gamma)
+                self.assertEqual(loaded.gae_lambda, loaded.rollout_buffer.gae_lambda)
+                loaded.learn(total_timesteps=8)
+        finally:
+            env.close()
+
     def test_match_score_evaluation_saves_best_model(self) -> None:
         from sb3_contrib import RecurrentPPO
         from rl.rl_env import SubmarineDuelEnv
@@ -181,7 +212,7 @@ class GymEnvironmentTest(unittest.TestCase):
         finally:
             env.close()
 
-    def test_destroyer_rl_can_ping_and_fire_cannon(self) -> None:
+    def test_destroyer_rl_can_ping_and_fire_cannon_with_passive_contact(self) -> None:
         runner = HeadlessRunner(seed=19)
         destroyer_sid = runner.spawn_bot(
             boat_type="destroyer", external_control=True, ai=None,
