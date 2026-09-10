@@ -48,11 +48,6 @@ if [[ $current_branch != "$BRANCH" ]]; then
     exit 1
 fi
 
-if ! git -C "$TARGET_ROOT" diff --quiet || ! git -C "$TARGET_ROOT" diff --cached --quiet; then
-    echo "Le depot contient des modifications suivies. Mise a jour annulee." >&2
-    exit 1
-fi
-
 if [[ -x "$TARGET_ROOT/.venv/bin/python" ]]; then
     PYTHON=$TARGET_ROOT/.venv/bin/python
 elif [[ -x "$TARGET_ROOT/venv/bin/python" ]]; then

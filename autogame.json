@@ -1,0 +1,22 @@
+{
+  "map": "world",
+  "startDelaySeconds": 30,
+  "endCondition": {"type": "anyBoatSunk", "waitForTorpedoes": true},
+  "maxDurationSeconds": 600,
+  "boats": [
+    {
+      "boatType": "destroyer",
+      "ai": "rl_aidest_v3_scripted",
+      "teamId": "dest",
+      "position": {"x": -100, "y": -0.2, "z": 600},
+      "rotation": 3.141592653589793
+    },
+    {
+      "boatType": "submarine",
+      "ai": "rl_aisub_v15_scripted",
+      "teamId": "sub",
+      "position": {"x": 100, "y": -3, "z": 600},
+      "rotation": 0
+    }
+  ]
+}

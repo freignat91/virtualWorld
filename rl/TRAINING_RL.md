@@ -5,6 +5,58 @@ la simulation headless au chargement d'une politique dans le serveur live.
 
 ## Principes
 
+### Run V5 Actif (2026-09-10)
+
+Autorisation explicite du lancement long executee, remplacant les anciennes
+mentions de preparation/non-lancement des agents. Demarrage local
+`2026-09-10T01:09:11+02:00` (`2026-09-09T23:09:11Z`), PID **210501** ; etat
+actif verifie a `2026-09-10T01:10:30+02:00`. Commande exacte, depuis la racine :
+
+```bash
+nohup env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 venv/bin/python -u -m rl.train_ai --config rl/configs/aidest_v5.json --stage scripted --run-name aidest_v5_scripted_seed1542 --resume rl/models_rl/aidest_v4_scripted/best/best_model.zip --device cuda > /tmp/virtualWorld_aidest_v5_scripted_seed1542.log 2>&1 &
+```
+
+- Aucun job training/evaluation/serveur concurrent avant lancement ; sortie absente.
+- Configuration inchangee : 2M nouvelles decisions, huit workers forkserver
+  `210519-210526` (parent forkserver `210518`), seed effective1542.
+- `models_rl/aidest_v5_scripted_seed1542/provenance.json` confirme source300000
+  steps, CUDA, MLP `[256,256]`, LSTM256/1 couche ; nouvelle phase, pas reprise exacte.
+- Source v4 SHA256 : `90c08a62b551f77f23a90194bb7876841df7cf7a9c50987141c3257aa16ca8e2`.
+- Adversaire sub15 SHA256 : `2849f0c79a15fced51a249720bd25bd4210ee1bafc4c71f79aa942dfaab421c5`.
+- Baseline v3 SHA256 : `103481713271ed04cf03007f1468898e6b4c928214c12f28ecd90fabfc5066c2`.
+- Premier rollout **8192** complet : iterations1,8s,992FPS avant optimisation ;
+  ce chiffre n'est pas le debit d'entrainement complet.
+- Apres optimisation : iterations3,**24576** steps,46s,**523FPS** cumules ;
+  loss=-0.0287,value_loss=0.251,KL=0.013700104,explained_variance=0.794.
+  `n_updates`3808 puis3816 inclut le compteur historique du checkpoint.
+- RTX5080/16Go, torch2.11.0/CUDA13.0, SB3/contrib2.8.0 ; GPU22%,1083MiB
+  totaux/16303MiB,42C au relevement. Parent RSS~2GiB, huit workers~0.66GiB
+  chacun (RSS non deduplique),49GiB RAM disponible,swap inutilisee.
+- OMP/MKL/OPENBLAS1 verifies dans `/proc/210501/environ` ; chaque worker1 thread,
+  parent9 threads natifs incluant les auxiliaires CUDA.
+- Quatre tests warm-start passes avant lancement ; check_env initial passe,
+  metriques affichees finies, aucune erreur observee. Pas de capture exhaustive
+  des observations du run ni de garantie de finitude future.
+- Premiere evaluation a100000 nouvelles decisions,30 episodes/adversaire ;
+  checkpoint periodique a250000. Rien n'est promu/deploye, aucun ancien ZIP ecrase.
+
+Capture avant lancement : `models_rl/launch_manifests/aidest_v5_scripted_seed1542/`.
+`source.tar.gz` contient98 fichiers, dont tous les Python racine/RL presents
+(suivis et non suivis), configurations, cartes, coques, BT et documentation.
+Pas de credentials, noms de joueurs, logs live ou certificats dans cette selection.
+Git diff binaire HEAD, statut incluant les non-suivis, revision, versions materiel,
+SHA individuels des98 entrees et des modeles sont conserves hors sortie du run.
+Archive SHA256 : `329cb3084a3a1a254e2f824e23681f6c7573b43d310c3f880fe68b4fcb5ca217`.
+`rl/train_ai.py` SHA256 : `26d74b6c5df3446e52451d3001b43bf1a27ed63ffaf497ac9fa960e09328fb46`.
+Comparaison tar/source et98 SHA passes ; v3/v4/sub15 et selection v4 inchanges
+apres lancement. Fichiers de capture rendus non inscriptibles ; les notes de
+statut presentes ont ete ajoutees ensuite, sans changer les entrees executables.
+`startup.log` conserve les premiers rollouts, le log `/tmp` continue d'evoluer.
+
+**Entrainement non termine**, premiere evaluation encore attendue a ce releve.
+Pas d'ETA extrapolee avant les evaluations ; pas de promesse de surveillance
+automatique ulterieure. Ne pas relancer en double ni interrompre ce job sain.
+
 Le client n'est jamais utilisé pendant l'entraînement. `headless.py` instancie
 directement `simulation.Sim`, la même simulation autoritaire que `server.py`.
 Les règles de navigation, détection, munitions, projectiles, dégâts et naufrage
@@ -267,9 +319,18 @@ inutilement tous les cœurs.
 
 ## Reprise d'un checkpoint
 
-`--resume` charge les poids et réapplique les paramètres scalaires de la nouvelle
-configuration. `n_steps`, `batch_size`, l'observation et l'action doivent rester
-compatibles.
+`--resume` demarre une **nouvelle phase warm-start**, pas une continuation exacte :
+les poids et l'etat de l'optimiseur sont charges, les parametres scalaires sont
+reappliques (dont gamma/lambda dans le buffer). La seed de la nouvelle config est
+passee au chargement avant le setup ; les workers recoivent seed + index au reset.
+`policy_kwargs` doit correspondre exactement au checkpoint : toute difference
+d'architecture est refusee, sans adaptation des poids. `n_steps`, `batch_size`,
+l'observation et l'action doivent aussi rester compatibles.
+
+Le repertoire de sortie doit etre absent ou vide, meme avec `--resume` : la CLI
+refuse un repertoire non vide avant toute ecriture de configuration. Choisir un
+nouveau nom, jamais effacer un run pour le reutiliser. Le rechargement historique
+du meilleur score reste disponible dans le callback, mais pas via cette CLI.
 
 ```bash
 .venv/bin/python -m rl.train_ai --config rl/configs/aidest_v2.json \
@@ -280,6 +341,52 @@ compatibles.
 Le compteur d'étapes repart de zéro dans le nouveau run. Une interface modifiée,
 comme le passage de `destroyer_duel_v1` à `destroyer_duel_v2`, nécessite un
 nouveau modèle.
+
+### Prochaine phase v5 (preparee, non lancee)
+
+Apres diagnostic80 et autorisation explicite du run long, `aidest_v5.json` reprend
+exactement v4 sauf nom, description et seed1542. Source : v4 best300k, 2M nouvelles
+decisions RL demandees, huit workers `forkserver`, memes recompenses, adversaires,
+LR, entropie et cadence d'evaluation. PPO finit ses rollouts : avec 8 x 1024,
+le compteur final attendu est 2 007 040, pas exactement 2 000 000.
+
+Commande pour le parent, **non executee pendant cette preparation** :
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+venv/bin/python -m rl.train_ai --config rl/configs/aidest_v5.json \
+  --stage scripted --run-name aidest_v5_scripted_seed1542 \
+  --resume rl/models_rl/aidest_v4_scripted/best/best_model.zip --device cuda
+```
+
+Le fichier source reste inchange, SHA256
+`90c08a62b551f77f23a90194bb7876841df7cf7a9c50987141c3257aa16ca8e2`.
+Il contient 300000 etapes, architecture [256,256]/LSTM256/1 et seed historique342
+(pas la seed542 demandee dans v4). La nouvelle phase applique effectivement1542.
+Les compteurs de phase, curriculum, evaluation et schedule d'entropie repartent ;
+ce n'est ni une restauration du RNG historique ni une reprise d'episode.
+
+`provenance.json` est ecrit une seule fois avant `learn`, depuis le modele charge :
+source absolue/SHA256 controle avant et apres chargement, compteur source, seed,
+classe/policy_kwargs/architecture reels, device et versions des dependances.
+Ce manifeste ne remplace pas l'archive de code et d'entrees : le parent doit
+archiver commit, empreinte du worktree sale, configs/cartes/specs et adversaire
+gele avant son lancement, sans modifier les checkpoints de reference.
+
+Verification locale avec `venv/bin/python -m rl.check_training_device` et les trois
+variables de threads ci-dessus : Python3.12.3, torch2.11.0/CUDA13.0,
+stable-baselines3 et sb3-contrib2.8.0, Gymnasium1.2.3, NumPy2.4.4 ; RTX5080
+disponible et petit calcul CUDA valide. `forkserver` est disponible. Cela ne mesure
+pas le debit d'entrainement : simulation et adversaires restent sur CPU ; un petit
+LSTM peut etre limite par les transferts/latences GPU. CUDA est une option valide,
+pas une preuve de gain face a `--device cpu`. Aucun benchmark long effectue ici.
+
+Validation de preparation : 256 tests passent avec OMP/MKL/OPENBLAS=1, compilation
+des trois scripts Python et `git diff --check` OK. Le test recurrent reel charge
+un petit checkpoint temporaire puis apprend 32 pas avec huit workers forkserver :
+poids identiques avant apprentissage, seeds1542-1549 observees au reset, manifeste
+verifie, trois differences d'architecture refusees et sortie non vide preservee.
+La source v4 conserve son SHA256 ; aucun run long, commit ou deploiement effectue.
 
 ## Phase self-play
 
@@ -334,6 +441,7 @@ Un run `rl/models_rl/<run_name>/` contient :
 | Chemin | Contenu |
 |---|---|
 | `effective_config.json` | Configuration effective et version d'observation |
+| `provenance.json` | Source/SHA256, seed et architecture chargees, device et versions avant apprentissage |
 | `monitor.csv` | Résultats des épisodes d'entraînement |
 | `tensorboard/` | Métriques TensorBoard |
 | `checkpoints/` | Sauvegardes périodiques |

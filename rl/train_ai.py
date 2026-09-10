@@ -7,8 +7,10 @@ import hashlib
 import json
 import math
 import os
+import platform
 import shutil
 import zipfile
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any, Dict, Sequence, Tuple
 
@@ -323,7 +325,7 @@ def main() -> None:
     parser.add_argument("--config", default=str(BASE_DIR / "configs" / "aisub_v14.json"))
     parser.add_argument("--stage", choices=("scripted", "selfplay"), default="scripted")
     parser.add_argument("--run-name")
-    parser.add_argument("--resume", help="checkpoint servant de point de départ")
+    parser.add_argument("--resume", help="checkpoint source d'une nouvelle phase, pas une continuation exacte")
     parser.add_argument("--device", default="auto")
     args = parser.parse_args()
 
@@ -337,8 +339,12 @@ def main() -> None:
     run_name = args.run_name or f"{config['name']}_{args.stage}"
     output_dir = BASE_DIR / "models_rl" / run_name
     league_dir = output_dir / "league"
+    if output_dir.exists() and (not output_dir.is_dir() or any(output_dir.iterdir())):
+        raise ValueError(f"repertoire de sortie non vide: {output_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
-    league_dir.mkdir(parents=True, exist_ok=True)
+    league_dir.mkdir()
+    source_path = Path(args.resume).resolve(strict=True) if args.resume else None
+    source_sha256 = file_sha256(source_path) if source_path else None
     if args.stage == "selfplay" and args.resume:
         bootstrap = league_dir / "policy_bootstrap.zip"
         if not bootstrap.exists():
@@ -354,9 +360,6 @@ def main() -> None:
         config["env"].get("agent_boat_type", "submarine"),
         config["env"].get("control_version"))[0]
     effective["curriculum_decisions_per_env"] = curriculum_decisions
-    with (output_dir / "effective_config.json").open("w", encoding="utf-8") as handle:
-        json.dump(effective, handle, indent=2, ensure_ascii=True)
-
     smoke_env = make_env(
         config, seed=int(training["seed"]), stage=args.stage,
         curriculum_decisions=curriculum_decisions, league_dir=league_dir)()
@@ -383,10 +386,17 @@ def main() -> None:
         "n_lstm_layers": int(model_cfg["n_lstm_layers"]),
     }
     if args.resume:
-        model = RecurrentPPO.load(
-            args.resume, env=vec_env, device=args.device,
-            tensorboard_log=str(output_dir / "tensorboard"))
-        configure_loaded_model(model, config)
+        try:
+            model = RecurrentPPO.load(
+                source_path, env=vec_env, device=args.device,
+                seed=int(training["seed"]), policy_kwargs=policy_kwargs,
+                tensorboard_log=str(output_dir / "tensorboard"))
+            configure_loaded_model(model, config)
+            if file_sha256(source_path) != source_sha256:
+                raise RuntimeError("checkpoint source modifie pendant le chargement")
+        except BaseException:
+            vec_env.close()
+            raise
     else:
         model = RecurrentPPO(
             "MlpLstmPolicy", vec_env,
@@ -404,6 +414,33 @@ def main() -> None:
             tensorboard_log=str(output_dir / "tensorboard"),
             seed=int(training["seed"]), device=args.device, verbose=1,
         )
+
+    provenance = {
+        "phase": "warm_start" if source_path else "new_model",
+        "checkpoint_source": str(source_path) if source_path else None,
+        "checkpoint_sha256": source_sha256,
+        "checkpoint_timesteps": model.num_timesteps,
+        "seed": model.seed,
+        "policy_class": f"{type(model.policy).__module__}.{type(model.policy).__name__}",
+        "policy_kwargs": model.policy_kwargs,
+        "architecture": {
+            "net_arch": model.policy.net_arch,
+            "lstm_hidden_size": model.policy.lstm_actor.hidden_size,
+            "n_lstm_layers": model.policy.lstm_actor.num_layers,
+        },
+        "device": str(model.device),
+        "python": platform.python_version(),
+        "dependencies": {name: version(name) for name in (
+            "torch", "stable-baselines3", "sb3-contrib", "gymnasium", "numpy")},
+    }
+    try:
+        for filename, content in (("effective_config.json", effective),
+                                  ("provenance.json", provenance)):
+            with (output_dir / filename).open("x", encoding="utf-8") as handle:
+                json.dump(content, handle, indent=2, ensure_ascii=True)
+    except BaseException:
+        vec_env.close()
+        raise
 
     callbacks = [
         EntropyScheduleCallback(

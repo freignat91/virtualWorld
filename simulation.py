@@ -47,7 +47,58 @@ REGEN_MAX_BUDGET = 10.0
 REGEN_TOTAL_INITIAL = 20.0
 
 
+def integrity_capacity(spec: Dict[str, Any], default: float = 100.0) -> float:
+    """Valide les points configures; defaut pour les anciennes specifications."""
+    value = spec.get("integrity", default)
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+        raise ValueError("integrity doit etre un nombre fini strictement positif")
+    return float(value)
+
+
+def init_hull_integrity(entity: Dict[str, Any]) -> None:
+    """Fige la capacite par instance, commune aux humains, BT et RL."""
+    boat = entity.get("boat") or {}
+    capacity = integrity_capacity(boat)
+    integrity_capacity(boat.get("acousticLures") or {}, 10.0)
+    entity["maxIntegrity"] = capacity
+    entity["integrity"] = capacity
+
+
 # ===================== Helpers géométriques (purs, sans état) =====================
+
+def torpedo_radar_visible(bot: Dict[str, Any], torpedo: Dict[str, Any],
+                          world: Dict[str, Any]) -> bool:
+    """Radar strict local, sans exemption de verrou, de type ou d'alliance."""
+    pos = bot["position"]
+    bx, by, bz = pos["x"], pos.get("y", 0.0), pos["z"]
+    tx, tz = torpedo["x"], torpedo["z"]
+    range_u = float((bot.get("boat") or {}).get("radarRangeMeters", 30000)) / UNIT_METERS_BOT
+    return ((tx - bx) ** 2 + (tz - bz) ** 2 <= range_u ** 2
+            and geometry.line_of_sight_clear(bx, bz, tx, tz, world)
+            and not geometry.count_thermoclines_crossed(
+                bx, by, bz, tx, torpedo.get("y", 0.0), tz, world, UNIT_METERS_BOT))
+
+
+def torpedo_radar_threat(bot: Dict[str, Any], torpedo: Dict[str, Any],
+                         world: Dict[str, Any]) -> Optional[Tuple[float, float, float]]:
+    """Distance, CPA et ETA planes observables ; aucun acces au verrou prive."""
+    if torpedo.get("ownerPlayerId") == bot.get("id"):
+        return None
+    if not torpedo_radar_visible(bot, torpedo, world):
+        return None
+    speed = torpedo.get("speed", 0.0)
+    if speed <= 0.001:
+        return None
+    bx, bz = bot["position"]["x"], bot["position"]["z"]
+    tx, tz = torpedo["x"], torpedo["z"]
+    t_raw, cpa = geometry.closest_approach_on_segment(
+        bx, bz, tx, tz, tx + torpedo.get("dirX", 0.0) * speed * 10.0,
+        tz + torpedo.get("dirZ", 0.0) * speed * 10.0)
+    if cpa * UNIT_METERS_BOT > 200.0:
+        return None
+    return (math.hypot(tx - bx, tz - bz) * UNIT_METERS_BOT,
+            cpa * UNIT_METERS_BOT, max(0.0, min(10.0, t_raw * 10.0)))
+
 
 def boat_torpedo_specs(boat: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     """Retourne le dict torpedoes du bateau, avec valeurs par défaut alignées
@@ -130,33 +181,8 @@ def mine_payload(mine: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def torpedo_segment_blocked(x1, z1, x2, z2, world_data, *, point_in_polygon, ensure_island_bounds) -> bool:
-    """Vrai si le segment traverse une île. Échantillonnage 1 unité (10 m)."""
-    bounds_list = ensure_island_bounds(world_data)
-    if not bounds_list:
-        return False
-    dx = x2 - x1
-    dz = z2 - z1
-    seg_min_x = x1 if dx >= 0 else x2
-    seg_max_x = x2 if dx >= 0 else x1
-    seg_min_z = z1 if dz >= 0 else z2
-    seg_max_z = z2 if dz >= 0 else z1
-    candidates = [b for b in bounds_list
-                  if b["maxX"] >= seg_min_x and b["minX"] <= seg_max_x
-                  and b["maxZ"] >= seg_min_z and b["minZ"] <= seg_max_z]
-    if not candidates:
-        return False
-    length = (dx * dx + dz * dz) ** 0.5
-    steps = max(1, int(length))
-    for i in range(1, steps + 1):
-        ti = i / steps
-        x = x1 + dx * ti
-        z = z1 + dz * ti
-        for b in candidates:
-            if x < b["minX"] or x > b["maxX"] or z < b["minZ"] or z > b["maxZ"]:
-                continue
-            if point_in_polygon(x, z, b["points"]):
-                return True
-    return False
+    """Occlusion exacte commune ; signature conservee pour les hooks serveur."""
+    return not geometry.line_of_sight_clear(x1, z1, x2, z2, world_data)
 
 
 def torpedo_avoid_island(t, des_x, des_z, horizon, world_data, *, point_in_polygon, ensure_island_bounds):
@@ -277,6 +303,8 @@ class Sim:
         self.world_data = world_data
         self._clock = clock if clock is not None else time.time
         self.t: float = self._clock()
+        self.trace_rl_decisions: bool = False
+        self.trace_step: int = 0
 
         # État principal (pointé vers les globals server.py via set_legacy_hooks).
         self.players: Dict[str, Any] = {}
@@ -296,8 +324,9 @@ class Sim:
         # Buffer d'events.
         self._events: List[ev_mod.Event] = []
 
-        # Impacts canon différés selon l'horloge de simulation.
-        self._pending_cannon_hits: List[Dict[str, Any]] = []
+        # Obus sans cible vivante, avances par l'horloge de simulation.
+        self.cannon_shells: List[Dict[str, Any]] = []
+        self._next_cannon_shot = 0
         self._pending_sonar_pings: List[Dict[str, Any]] = []
         self._sonar_reveals: Dict[Tuple[str, str], Dict[str, Any]] = {}
 
@@ -406,7 +435,7 @@ class Sim:
         ))
 
     def _emit_torpedo_state(self, t):
-        """Calcule la cible courante et émet TorpedoState (broadcast)."""
+        """Emet TorpedoState avec le point connu, sans resoudre de cible vivante."""
         tx = ty = tz = None
         activated = t["traveled"] >= t["activation"]
         # Avant la distance d'activation, la torpille ne fait que rejoindre son
@@ -419,23 +448,13 @@ class Sim:
                 tz = last[2]
                 if len(last) > 1 and last[1] is not None:
                     ty = last[1]
-            else:
-                target_id = t.get("targetId")
-                if target_id:
-                    for p in self.players.values():
-                        if p.get("id") == target_id:
-                            pos = p.get("position") or {}
-                            tx = pos.get("x")
-                            tz = pos.get("z")
-                            ty = pos.get("y")
-                            break
-                if tx is None and t.get("initialTarget"):
-                    it = t["initialTarget"]
-                    if len(it) == 3:
-                        tx, ty, tz = it
-                    else:
-                        tx = it[0]
-                        tz = it[1]
+            elif t.get("initialTarget"):
+                it = t["initialTarget"]
+                if len(it) == 3:
+                    tx, ty, tz = it
+                else:
+                    tx = it[0]
+                    tz = it[1]
         self.emit(ev_mod.TorpedoState(
             owner_id=t["ownerPlayerId"],
             tid=t["tid"],
@@ -596,10 +615,13 @@ class Sim:
         # La torpille autonome utilise un SONAR ACTIF : il ne franchit pas une
         # thermocline (sauf pénétration aléatoire via thermoclinePenetration).
         _tc_pen = t.get("thermoclinePenetration", 0)
-        def thermo_blocks(px, py, pz):
-            if _count_thermo(t["x"], ty, t["z"], px, py, pz, world_data, UNIT_METERS_BOT) > 0:
-                return _tc_pen <= 0 or random.random() >= _tc_pen
-            return False
+        # Un resultat par entite et par passe, partage entre priorite/suivi/scan.
+        thermo_results: Dict[Tuple[str, Any], bool] = {}
+        def thermo_blocks(key: Tuple[str, Any], px: float, py: float, pz: float) -> bool:
+            if key not in thermo_results:
+                crossed = _count_thermo(t["x"], ty, t["z"], px, py, pz, world_data, UNIT_METERS_BOT) > 0
+                thermo_results[key] = crossed and (_tc_pen <= 0 or random.random() >= _tc_pen)
+            return thermo_results[key]
         now = self.t
 
         # Purge des leurres expirés.
@@ -631,7 +653,7 @@ class Sim:
                 continue
             if not line_of_sight_clear(t["x"], t["z"], lx, lz, world_data):
                 continue
-            if thermo_blocks(lx, ly, lz):
+            if thermo_blocks(("lure", lkey), lx, ly, lz):
                 continue
             if dist < best_lure_dist:
                 best_lure_dist = dist
@@ -670,7 +692,7 @@ class Sim:
                     break
                 if not line_of_sight_clear(t["x"], t["z"], px, pz, world_data):
                     break
-                if thermo_blocks(px, py, pz):
+                if thermo_blocks(("boat", p["id"]), px, py, pz):
                     break
                 return {
                     "key": "radar:" + initial_target_id,
@@ -701,7 +723,7 @@ class Sim:
                     break
                 if not line_of_sight_clear(t["x"], t["z"], px, pz, world_data):
                     break
-                if thermo_blocks(px, py, pz):
+                if thermo_blocks(("boat", p["id"]), px, py, pz):
                     break
                 return {
                     "key": "radar:" + prev_locked_id,
@@ -727,7 +749,7 @@ class Sim:
                     break
                 if not line_of_sight_clear(t["x"], t["z"], lx, lz, world_data):
                     break
-                if thermo_blocks(lx, ly, lz):
+                if thermo_blocks(("lure", lkey), lx, ly, lz):
                     break
                 return {
                     "key": "radar_lure:" + lure_key,
@@ -751,7 +773,9 @@ class Sim:
                 cos_ang = (dx * fx + dz * fz) / dist
                 if cos_ang < cos_wide:
                     break
-                if thermo_blocks(ox, oy, oz):
+                if not line_of_sight_clear(t["x"], t["z"], ox, oz, world_data):
+                    break
+                if thermo_blocks(("torp", okey), ox, oy, oz):
                     break
                 return {
                     "key": "radar_torp:" + ot_lock_key,
@@ -780,7 +804,7 @@ class Sim:
                 continue
             if not line_of_sight_clear(t["x"], t["z"], px, pz, world_data):
                 continue
-            if thermo_blocks(px, py, pz):
+            if thermo_blocks(("boat", p["id"]), px, py, pz):
                 continue
             if dist < best_dist:
                 best_dist = dist
@@ -801,7 +825,7 @@ class Sim:
                 continue
             if not line_of_sight_clear(t["x"], t["z"], lx, lz, world_data):
                 continue
-            if thermo_blocks(lx, ly, lz):
+            if thermo_blocks(("lure", lkey), lx, ly, lz):
                 continue
             if dist < best_dist:
                 best_dist = dist
@@ -832,7 +856,9 @@ class Sim:
                 use_cos = cos_wide if prev_locked_key == ot_lock_key else cos_half
                 if cos_ang < use_cos:
                     continue
-                if thermo_blocks(ox, oy, oz):
+                if not line_of_sight_clear(t["x"], t["z"], ox, oz, world_data):
+                    continue
+                if thermo_blocks(("torp", okey), ox, oy, oz):
                     continue
                 if dist < torp_best_dist:
                     torp_best_dist = dist
@@ -856,9 +882,9 @@ class Sim:
 
     # ===================== Explosion =====================
 
-    def _explode_torpedo(self, t, *, direct_hit_id, damage, hit_target_id, hit_lure=False, silent=False):
+    def _explode_torpedo(self, t, *, direct_hit_id, damage, hit_target_id, hit_lure=False, silent=False, reason=None):
         if silent:
-            self.emit(ev_mod.TorpedoDead(owner_id=t["ownerPlayerId"], tid=t["tid"]))
+            self.emit(ev_mod.TorpedoDead(owner_id=t["ownerPlayerId"], tid=t["tid"], reason=reason))
             for tgt in t.get("notifiedTargets") or []:
                 self._notify_torpedo_acquisition(t, tgt, acquired=False, destroyed=True, reason="lost")
             self._notify_shooter_status(t, acquired=False, destroyed=True, reason="lost")
@@ -900,14 +926,7 @@ class Sim:
         else:
             self.bot_splash_damage(t["x"], t["y"], t["z"], damage, attacker_id)
             self.player_splash_damage(t["x"], t["y"], t["z"], damage, attacker_id, splash_radius_u)
-        # Détruire les leurres dans le rayon.
-        for lkey in list(self.lures.keys()):
-            lure = self.lures[lkey]
-            dx = lure["x"] - t["x"]
-            dz = lure["z"] - t["z"]
-            if dx * dx + dz * dz <= splash_radius_u * splash_radius_u:
-                self.lures.pop(lkey, None)
-                self.emit(ev_mod.LureDestroyed(owner_id=lure["ownerId"], lid=lure["lid"]))
+        self.lure_splash_damage(t["x"], t["y"], t["z"], damage, splash_radius_u)
         # Filoguidée : libérer le slot.
         pid = t["ownerPlayerId"]
         if self._active_wire.get(pid) == (pid, t["tid"]):
@@ -938,6 +957,19 @@ class Sim:
         PROX_VERTICAL_U = 1.0
         PROX_DISTANCE_U = 80.0 / UNIT_METERS_BOT
         TORPEDO_EMIT_INTERVAL = 0.1
+        ground = world_data.get("ground")
+        bounds = (ground["width"] / 2, ground["depth"] / 2) if ground else None
+
+        def inside_map(x: float, z: float) -> bool:
+            return bounds is None or (-bounds[0] <= x <= bounds[0] and
+                                      -bounds[1] <= z <= bounds[1])
+
+        # Purger avant tout capteur ou collision, independamment de l'ordre des tirs.
+        for key, t in list(self.torpedoes.items()):
+            if not inside_map(t["x"], t["z"]):
+                self._explode_torpedo(t, direct_hit_id=None, damage=0, hit_target_id=None,
+                                      silent=True, reason="map_bounds")
+                self.torpedoes.pop(key, None)
         for key in list(self.torpedoes.keys()):
             t = self.torpedoes.get(key)
             if t is None:
@@ -1001,30 +1033,12 @@ class Sim:
                     t["lockedKey"] = None
                     t["lastIntensity"] = 0
                     t["acquired"] = False
-                    if t["lastAcquiredPos"]:
-                        target = t["lastAcquiredPos"]
-                    elif t["initialTarget"]:
-                        it = t["initialTarget"]
-                        itx = it[0]
-                        if len(it) == 3:
-                            ity, itz = it[1], it[2]
-                        else:
-                            ity, itz = None, it[1]
-                        dist2d = math.hypot(itx - t["x"], itz - t["z"])
-                        if dist2d < 1.0:
-                            # Arrivée : dans les 10 m du point de visée.
-                            # Consommer maintenant évite pitch ≈ 90° quand
-                            # td_len → 0 (torpille gelée sur place).
-                            t["initialTarget"] = None
-                        else:
-                            ahead = (itx - t["x"]) * t["dirX"] + (itz - t["z"]) * t["dirZ"]
-                            if ahead >= 0:
-                                t["initialTargetTracked"] = True
-                                target = (itx, ity, itz)
-                            elif t.get("initialTargetTracked"):
-                                t["initialTarget"] = None  # dépassé → cap maintenu
-                            else:
-                                target = (itx, ity, itz)  # pas encore pointé vers lui
+                    # Sans capteur : profondeur tenue, cap courant avec evitement
+                    # local conserve. Ce point projete n'est pas un souvenir cible.
+                    horizon = max(t["minTurnRadius"] * 1.5, t["speed"] * 1.5)
+                    target = (t["x"] + t["dirX"] * horizon, None,
+                              t["z"] + t["dirZ"] * horizon)
+                    t["pitch"] = 0.0
             elif not activated and t["initialTarget"]:
                 it = t["initialTarget"]
                 itx2 = it[0]
@@ -1092,11 +1106,27 @@ class Sim:
                         t["pitch"] = math.atan2(dy_t, horiz_dist)
 
             # ---- Avancée ----
+            # Borner le segment avant les collisions, pas seulement apres l'avancee.
+            travel_step = t["speed"] * dt
+            if t["maxRange"] > 0:
+                travel_step = min(travel_step, max(0.0, t["maxRange"] - t["traveled"]))
             cos_p = math.cos(t["pitch"])
             sin_p = math.sin(t["pitch"])
-            nx = t["x"] + t["dirX"] * cos_p * t["speed"] * dt
-            nz = t["z"] + t["dirZ"] * cos_p * t["speed"] * dt
-            ny = min(TORPEDO_CEILING_Y, t["y"] + sin_p * t["speed"] * dt)
+            nx = t["x"] + t["dirX"] * cos_p * travel_step
+            nz = t["z"] + t["dirZ"] * cos_p * travel_step
+            leaves_map = not inside_map(nx, nz)
+            if leaves_map:
+                fraction = 1.0
+                for start, end, half in ((t["x"], nx, bounds[0]),
+                                         (t["z"], nz, bounds[1])):
+                    if end > half:
+                        fraction = min(fraction, (half - start) / (end - start))
+                    elif end < -half:
+                        fraction = min(fraction, (-half - start) / (end - start))
+                travel_step *= fraction
+                nx = max(-bounds[0], min(bounds[0], t["x"] + (nx - t["x"]) * fraction))
+                nz = max(-bounds[1], min(bounds[1], t["z"] + (nz - t["z"]) * fraction))
+            ny = min(TORPEDO_CEILING_Y, t["y"] + sin_p * travel_step)
 
             # ---- Collisions (uniquement APRÈS la distance d'activation) ----
             # Avant activation, la torpille ne fait QUE rejoindre sa cible initiale :
@@ -1111,6 +1141,8 @@ class Sim:
                     px = pos.get("x", 0)
                     py = pos.get("y", 0)
                     pz = pos.get("z", 0)
+                    if not inside_map(px, pz):
+                        continue
                     dy = abs(py - t["y"])
                     if dy > PROX_VERTICAL_U:
                         continue
@@ -1144,6 +1176,8 @@ class Sim:
 
                 # ---- Balises sonar ----
                 for bid, b in list(self.beacons.items()):
+                    if not inside_map(b["x"], b["z"]):
+                        continue
                     d = distance_point_segment(b["x"], b["z"], t["x"], t["z"], nx, nz)
                     if d <= 1.0:
                         t["x"], t["z"] = b["x"], b["z"]
@@ -1159,10 +1193,19 @@ class Sim:
                 # ---- Leurres acoustiques ----
                 LURE_HIT_U = 3.0 / UNIT_METERS_BOT
                 for lkey, lure in list(self.lures.items()):
-                    d = distance_point_segment(lure["x"], lure["z"], t["x"], t["z"], nx, nz)
+                    if not inside_map(lure["x"], lure["z"]):
+                        continue
+                    # Collision 3D sur le segment, pas de leurre touche a une autre profondeur.
+                    vx, vy, vz = nx - t["x"], ny - t["y"], nz - t["z"]
+                    length2 = vx * vx + vy * vy + vz * vz
+                    projection = ((lure["x"] - t["x"]) * vx +
+                                  (lure.get("y", 0) - t["y"]) * vy + (lure["z"] - t["z"]) * vz)
+                    fraction = max(0.0, min(1.0, projection / length2)) if length2 else 0.0
+                    d = math.dist((lure["x"], lure.get("y", 0), lure["z"]),
+                                  (t["x"] + fraction * vx, t["y"] + fraction * vy, t["z"] + fraction * vz))
                     if d <= LURE_HIT_U:
-                        t["x"], t["z"] = lure["x"], lure["z"]
-                        self._explode_torpedo(t, direct_hit_id=None, damage=0, hit_target_id=None, hit_lure=True)
+                        t["x"], t["y"], t["z"] = lure["x"], lure.get("y", 0), lure["z"]
+                        self._explode_torpedo(t, direct_hit_id=None, damage=t["damage"], hit_target_id=None, hit_lure=True)
                         exploded = True
                         break
                 if exploded:
@@ -1171,6 +1214,8 @@ class Sim:
 
                 # ---- Mines (proximité 80 m comme un bateau) ----
                 for mkey, m in list(self.mines.items()):
+                    if not inside_map(m["x"], m["z"]):
+                        continue
                     t_raw, cpa = closest_approach_on_segment(m["x"], m["z"], t["x"], t["z"], nx, nz)
                     if 0.0 <= t_raw <= 1.0 and cpa <= PROX_DISTANCE_U:
                         t["x"], t["z"] = nx, nz
@@ -1224,10 +1269,15 @@ class Sim:
                 continue
 
             # Avancée validée.
-            t["traveled"] += t["speed"] * dt
+            t["traveled"] += travel_step
             t["x"] = nx
             t["z"] = nz
             t["y"] = ny
+            if leaves_map:
+                self._explode_torpedo(t, direct_hit_id=None, damage=0, hit_target_id=None,
+                                      silent=True, reason="map_bounds")
+                self.torpedoes.pop(key, None)
+                continue
             # Hors portée.
             if t["maxRange"] > 0 and t["traveled"] >= t["maxRange"]:
                 self._explode_torpedo(t, direct_hit_id=None, damage=0, hit_target_id=None)
@@ -1619,7 +1669,7 @@ class Sim:
                 dlog("grenades", f"splash {bot['id']} hors portée (dist={dist * UNIT_METERS_BOT:.0f}m > {alert_radius * UNIT_METERS_BOT:.0f}m)")
 
     def explode_server_grenade(self, g: Dict[str, Any]) -> None:
-        """Émet l'explosion + applique les dégâts splash (le tireur est immunisé)."""
+        """Applique le souffle a tous, sans compter l'auto-degat comme degat inflige."""
         ex = g["x"]
         ez = g["z"]
         ey = -g["targetDepthU"]
@@ -1635,12 +1685,13 @@ class Sim:
             dist = (dx*dx + dy*dy + dz*dz) ** 0.5
             if dist < bot_radius:
                 dmg_dealt = damage * (1 - dist / bot_radius)
-                total_dmg += dmg_dealt
-                dlog("grenades", f"explode {bot['id']} touché dist3D={dist * UNIT_METERS_BOT:.0f}m dmg={dmg_dealt:.1f}% (bot_depth={-pos['y'] * UNIT_METERS_BOT:.0f}m)")
+                if bot.get("id") != attacker_id:
+                    total_dmg += min(bot["integrity"], dmg_dealt)
+                dlog("grenades", f"explode {bot['id']} touché dist3D={dist * UNIT_METERS_BOT:.0f}m dmg={dmg_dealt:.1f} pts (bot_depth={-pos['y'] * UNIT_METERS_BOT:.0f}m)")
             else:
                 dlog("grenades", f"explode {bot['id']} raté dist3D={dist * UNIT_METERS_BOT:.0f}m (bot_depth={-pos['y'] * UNIT_METERS_BOT:.0f}m)")
         for sid, p in list(self.players.items()):
-            if p.get("is_bot"):
+            if p.get("is_bot") or p.get("godmode") or p.get("integrity", 100.0) <= 0:
                 continue
             if p.get("id") == attacker_id:
                 continue
@@ -1648,26 +1699,15 @@ class Sim:
             dx = ex - pos.get("x", 0); dy = ey - pos.get("y", 0); dz = ez - pos.get("z", 0)
             dist = (dx*dx + dy*dy + dz*dz) ** 0.5
             if dist < radius:
-                total_dmg += damage * (1 - dist / radius)
-        LURE_MAX_INTEGRITY = 10.0
-        r2 = radius * radius
-        for lkey in list(self.lures.keys()):
-            lure = self.lures[lkey]
-            dx = lure["x"] - ex
-            dz = lure["z"] - ez
-            d2 = dx * dx + dz * dz
-            if d2 <= r2:
-                dist = d2 ** 0.5
-                raw_dmg = damage * (1 - dist / radius)
-                total_dmg += min(100.0, raw_dmg / LURE_MAX_INTEGRITY * 100.0)
-                self.lures.pop(lkey, None)
-                self.emit(ev_mod.LureDestroyed(owner_id=lure["ownerId"], lid=lure["lid"]))
+                total_dmg += min(p.get("integrity", 100.0), damage * (1 - dist / radius))
+        total_dmg += self.lure_splash_damage(ex, ey, ez, damage, radius)
         self.emit(ev_mod.GrenadeExploded(
             shooter_id=attacker_id, gid=g["gid"],
             x=ex, y=ey, z=ez, damage=damage, dealt=round(total_dmg, 1),
         ))
         self.bot_splash_damage(ex, ey, ez, damage, attacker_id)
-        self.player_splash_damage(ex, ey, ez, damage, attacker_id, radius, exclude_id=attacker_id)
+        self.player_splash_damage(ex, ey, ez, damage, attacker_id, radius)
+        r2 = radius * radius
         for mkey in list(self.mines.keys()):
             m = self.mines.get(mkey)
             if m is None or m["kind"] == "surface":
@@ -1776,6 +1816,7 @@ class Sim:
         range_u_sq = range_u * range_u
         base_dmg = mine["damage"]
         attacker_id = trigger_id or mine["ownerId"]
+        self.lure_splash_damage(mine["x"], mine["y"], mine["z"], base_dmg, range_u, falloff=0.5)
         for sid_p, p in list(self.players.items()):
             pos = p.get("position") or {}
             dx = pos.get("x", 0) - mine["x"]
@@ -1850,6 +1891,33 @@ class Sim:
         """Renvoie le bsid pour un sid (None si bateau primaire ou bot)."""
         return sid if sid in self._legacy.human_owner_sid else None
 
+    def lure_splash_damage(self, ex: float, ey: float, ez: float, damage: float,
+                           radius: float, *, falloff: float = 1.0) -> float:
+        """Degats absolus 3D; mines a demi-attenuation, torpilles/grenades lineaires."""
+        if not math.isfinite(damage) or damage <= 0 or radius <= 0:
+            return 0.0
+        dealt = 0.0
+        for key, lure in list(self.lures.items()):
+            if self.now() >= lure["expiresAt"]:
+                continue
+            distance = math.dist((ex, ey, ez), (lure["x"], lure.get("y", 0), lure["z"]))
+            if distance > radius:
+                continue
+            loss = damage * (1.0 - falloff * distance / radius)
+            if loss <= 0:
+                continue
+            capacity = lure["maxIntegrity"]
+            before = lure["integrity"]
+            lure["integrity"] = max(0.0, before - loss)
+            dealt += before - lure["integrity"]
+            if lure["integrity"] <= 0:
+                self.lures.pop(key)
+                self.emit(ev_mod.LureDestroyed(owner_id=lure["ownerId"], lid=lure["lid"]))
+            else:
+                self.emit(ev_mod.LureIntegrityChanged(owner_id=lure["ownerId"], lid=lure["lid"],
+                          integrity=lure["integrity"], max_integrity=capacity))
+        return dealt
+
     def _emit_integrity(self, sid: str, p: Dict[str, Any]) -> None:
         """Émet IntegrityChanged au propriétaire du sid (humain seulement)."""
         socket_sid = self._owner_sid_for_player(sid)
@@ -1858,6 +1926,7 @@ class Sim:
         self.emit(ev_mod.IntegrityChanged(
             bsid=self._bsid_for(sid),
             value=float(p.get("integrity", 100.0)),
+            max_integrity=p.get("maxIntegrity", 100.0),
             target_sid=socket_sid,
         ))
 
@@ -1865,8 +1934,8 @@ class Sim:
         p = self.players.get(sid)
         if not p:
             return
-        p["integrity"] = 100.0
-        p["last_integrity"] = 100.0
+        init_hull_integrity(p)
+        p["last_integrity"] = p["integrity"]
         p["regen_budget"] = REGEN_MAX_BUDGET
         p["regen_paused_at"] = 0.0
         p["regen_total_remaining"] = REGEN_TOTAL_INITIAL
@@ -1879,7 +1948,7 @@ class Sim:
 
     def apply_player_damage(self, sid: str, p: Dict[str, Any], damage: float, attacker_id: Optional[str]) -> None:
         """Dégâts à un joueur humain. Sink + emit BoatSunk si <=0."""
-        if damage <= 0 or p.get("is_bot"):
+        if not math.isfinite(damage) or damage <= 0 or p.get("is_bot"):
             return
         if p.get("godmode"):
             return
@@ -1952,13 +2021,67 @@ class Sim:
             self.apply_player_damage(sid, p, dmg, attacker_id)
 
     def bot_apply_damage(self, sid: str, bot: Dict[str, Any], damage: float, attacker_id: Optional[str]) -> None:
-        if damage <= 0:
+        if not math.isfinite(damage) or damage <= 0 or bot["integrity"] <= 0:
             return
         bot["integrity"] = max(0.0, bot["integrity"] - damage)
+        if sid in self.players:
+            self.players[sid]["integrity"] = bot["integrity"]
+            self.players[sid]["maxIntegrity"] = bot.get("maxIntegrity", 100.0)
         bb = bot.setdefault("bb", {})
         bb["enemy_aware_until"] = self.now() + 60.0
         if bot["integrity"] <= 0:
             self.sink_bot(sid, bot, attacker_id)
+
+    def teleport_bot(self, actor_id: str, bot_id: Any, x: Any, z: Any) -> Optional[str]:
+        """Cheat explicite : placement horizontal, sans effacer les contacts."""
+        if not isinstance(bot_id, str):
+            return "Identifiant de bot invalide"
+        entry = next(((sid, b) for sid, b in self.bots.items() if b.get("id") == bot_id), None)
+        if entry is None:
+            return "Bot introuvable (selection perimee ou joueur humain)"
+        sid, bot = entry
+        player = self.players.get(sid)
+        if (not player or not player.get("is_bot") or player.get("id") != bot_id
+                or bot.get("sunk") or player.get("sunk")
+                or bot.get("integrity", 100) <= 0 or player.get("integrity", 100) <= 0):
+            return "Bot indisponible ou coule"
+        if any(type(v) not in (int, float) for v in (x, z)):
+            return "Coordonnees invalides"
+        try:
+            if not all(math.isfinite(v) for v in (x, z)):
+                return "Coordonnees invalides"
+        except OverflowError:
+            return "Coordonnees invalides"
+        ground = self.world_data["ground"]
+        if abs(x) > ground["width"] / 2 - 4 or abs(z) > ground["depth"] / 2 - 4:
+            return "Position invalide (bord de carte)"
+        if not geometry.line_of_sight_clear(x, z, x, z, self.world_data):
+            return "Position invalide (ile)"
+        old_position = dict(bot["position"])
+        bot["position"] = dict(old_position, x=float(x), z=float(z))
+        bot["speed"] = bot["rudder"] = 0.0
+        bot["waypoint"] = None
+        bot["control_target_speed_ratio"] = bot["control_target_rudder"] = 0.0
+        for key in ("_evade_until", "_threat_cache"):
+            bot.pop(key, None)
+        # Seuls les plans lies a l'ancien emplacement sont invalides, pas la memoire tactique.
+        bb = bot.get("bb", {})
+        for key in ("nav_node", "nav_prev_node", "nav_island", "nav_mode",
+                    "nav_perim_remaining", "nav_perim_after", "nav_banned_nodes", "nav_banned_until",
+                    "_stuck_ticks", "_ref_wp_dist", "_ref_wp_t", "_ref_wp_key",
+                    "_yvan_until", "_yvan_pending_from", "_yvan_pending_dist_u",
+                    "_evade", "_evade_pinged", "_evade_surprise", "_evade_avoid_dir"):
+            bb.pop(key, None)
+        player.update(position=dict(bot["position"]), speed=0.0, speedRatio=0.0,
+                      rudder=0.0, reverse=False)
+        self.emit(ev_mod.BotTeleported(actor_id=actor_id, player_id=bot_id,
+                                      old_position=old_position, position=dict(bot["position"])))
+        self.emit(ev_mod.PlayerMoved(player_id=bot_id, position=dict(bot["position"]),
+                                    rotation=bot["rotation"], rudder=0.0, reverse=False,
+                                    speed_ratio=0.0, integrity=bot.get("integrity", 100.0),
+                                    max_integrity=bot.get("maxIntegrity", 100.0),
+                                    submerged=bot["position"].get("y", 0) <= -5.0 / UNIT_METERS_BOT))
+        return None
 
     def sink_bot(self, sid: str, bot: Dict[str, Any], attacker_id: Optional[str]) -> None:
         if sid not in self.bots:
@@ -2110,12 +2233,12 @@ class Sim:
             last_dmg = p.get("regen_paused_at", 0)
             if (p.get("regen_budget", 0) > 0
                     and p.get("regen_total_remaining", 0) > 0
-                    and p.get("integrity", 100.0) < 100.0
+                    and p.get("integrity", 100.0) < p.get("maxIntegrity", 100.0)
                     and (now - last_dmg) >= REGEN_DELAY_S):
                 gain = min(REGEN_RATE_PER_S * dt,
                            p.get("regen_budget", 0),
                            p.get("regen_total_remaining", 0),
-                           100.0 - p.get("integrity", 100.0))
+                           p.get("maxIntegrity", 100.0) - p.get("integrity", 100.0))
                 if gain > 0:
                     p["integrity"] = p.get("integrity", 100.0) + gain
                     p["regen_budget"] = p.get("regen_budget", 0) - gain
@@ -2124,7 +2247,7 @@ class Sim:
                     # les 0.25 s, OU quand la regen vient de se terminer (intégrité
                     # pleine, budget ou réserve épuisés) pour garantir la valeur
                     # finale exacte côté client.
-                    regen_done = (p.get("integrity", 100.0) >= 100.0
+                    regen_done = (p.get("integrity", 100.0) >= p.get("maxIntegrity", 100.0)
                                   or p.get("regen_budget", 0) <= 0
                                   or p.get("regen_total_remaining", 0) <= 0)
                     if regen_done or (now - p.get("last_regen_emit", 0)) >= 0.25:
@@ -2359,6 +2482,7 @@ class Sim:
         y = pos.get("y", 0) if boat_type == "submarine" else 0.0
         noise = float(spec.get("noise", 0))
         duration_ms = float(spec.get("time", 0)) * 60.0 * 1000.0
+        capacity = integrity_capacity(spec, 10.0)
         pid = bot["id"]
         next_lid = legacy.next_lure_lid
         lid = next_lid.get(pid, 1)
@@ -2368,24 +2492,19 @@ class Sim:
             "ownerId": pid, "lid": lid,
             "x": x, "y": y, "z": z, "noise": noise,
             "expiresAt": expires_at,
+            "integrity": capacity, "maxIntegrity": capacity,
         }
         legacy.lure_ammo[sid] = max(0, legacy.lure_ammo.get(sid, 0) - 1)
         self.emit(ev_mod.LureDropped(
             owner_id=pid, lid=lid,
             x=x, y=y, z=z,
             noise=noise, duration_ms=duration_ms,
+            integrity=capacity, max_integrity=capacity,
         ))
         return True
 
-    def bot_sonar_ping(self, bot: Dict[str, Any], world_data: Dict[str, Any],
-                       *, timed: bool = False) -> List[Dict[str, Any]]:
-        """Ping sonar actif d'un bot. Émet l'event SonarPinged (broadcast clients),
-        détecte les joueurs/bots dans le cône large + LOS, marque les bots ciblés
-        comme pingés. Retourne la liste des cibles détectées [{id, x, z, dist_m}].
-        Avec timed=True, retourne [] et differe l'acquisition dans Sim.step."""
-        legacy = self._legacy
-        line_of_sight_clear = legacy.line_of_sight_clear
-        count_thermoclines = legacy.count_thermoclines_crossed
+    def bot_sonar_ping(self, bot: Dict[str, Any], world_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Emet un ping BT/RL ; retourne [], acquisition differee dans Sim.step."""
         now = self.now()
         boat = bot.get("boat") or {}
         active_sonar = boat.get("activeSonar") or {}
@@ -2402,100 +2521,35 @@ class Sim:
         fwd_z = math.sin(rotation)
         # Broadcast animation aux clients via event.
         self.emit(ev_mod.SonarPinged(
-            player_id=bot["id"], x=bx, z=bz,
+            player_id=bot["id"], x=bx, z=bz, y=by,
             cone_deg=cone_deg, rotation=rotation,
             range_m=detect_m, reveal_m=reveal_m,
         ))
         bb = bot.setdefault("bb", {})
         bb["last_ping_at"] = now
 
-        if timed:
-            # Le RL attend le front ; le contrat synchrone des BT reste intact.
-            self._pending_sonar_pings.append({
-                "bot": bot, "at": now, "x": bx, "y": by, "z": bz,
-                "range": detect_u, "reveal": reveal_m / UNIT_METERS_BOT,
-                "half_cos": half_cos, "fwd_x": fwd_x, "fwd_z": fwd_z,
-                "penetration": float(active_sonar.get("thermoclinePenetration", 0)),
-                "rolls": {},
-            })
-            return []
-
-        def _in_cone(tx, tz, dist_sq):
-            if cone_deg >= 360 or dist_sq <= 0:
-                return True
-            ln = math.sqrt(dist_sq)
-            dot = ((tx - bx) * fwd_x + (tz - bz) * fwd_z) / ln
-            return dot >= half_cos
-
-        detected: List[Dict[str, Any]] = []
-        # Joueurs humains.
-        for sid, p in self.players.items():
-            if p.get("is_bot"):
-                continue
-            if same_team(bot, p):
-                continue
-            if p.get("sunk"):
-                continue
-            pos = p.get("position") or {}
-            px, pz = pos.get("x", 0), pos.get("z", 0)
-            dx, dz = px - bx, pz - bz
-            dist_sq = dx * dx + dz * dz
-            if dist_sq > detect_u * detect_u:
-                continue
-            if not _in_cone(px, pz, dist_sq):
-                continue
-            if not line_of_sight_clear(bx, bz, px, pz, world_data):
-                continue
-            # Le sonar actif ne franchit PAS une thermocline (sauf pénétration aléatoire).
-            if count_thermoclines(bx, by, bz, px, pos.get("y", 0), pz, world_data, UNIT_METERS_BOT) > 0:
-                tc_pen = float(active_sonar.get("thermoclinePenetration", 0))
-                if tc_pen <= 0 or random.random() >= tc_pen:
-                    continue
-            detected.append({"id": p["id"], "x": px, "z": pz,
-                             "dist_m": math.sqrt(dist_sq) * UNIT_METERS_BOT})
-        # Autres bots.
-        for other_bot in self.bots.values():
-            if other_bot is bot:
-                continue
-            if same_team(bot, other_bot):
-                continue
-            if other_bot.get("sunk"):
-                continue
-            opos = other_bot.get("position") or {}
-            ox, oz = opos.get("x", 0), opos.get("z", 0)
-            dx, dz = ox - bx, oz - bz
-            dist_sq = dx * dx + dz * dz
-            if dist_sq > detect_u * detect_u:
-                continue
-            if not _in_cone(ox, oz, dist_sq):
-                continue
-            if not line_of_sight_clear(bx, bz, ox, oz, world_data):
-                continue
-            if count_thermoclines(bx, by, bz, ox, opos.get("y", 0), oz, world_data, UNIT_METERS_BOT) > 0:
-                tc_pen = float(active_sonar.get("thermoclinePenetration", 0))
-                if tc_pen <= 0 or random.random() >= tc_pen:
-                    continue
-            detected.append({"id": other_bot["id"], "x": ox, "z": oz,
-                             "dist_m": math.sqrt(dist_sq) * UNIT_METERS_BOT})
-        # Marquer les bots ciblés comme pingés (pour leur réaction d'évasion).
-        for target in detected:
-            for other_bot in self.bots.values():
-                if other_bot.get("id") == target["id"]:
-                    obb = other_bot.setdefault("bb", {})
-                    obb["pinged_at"] = now
-                    obb["pinged_by_pos"] = {"x": bx, "z": bz, "id": bot["id"]}
-        return detected
+        self._pending_sonar_pings.append({
+            "bot": bot, "at": now, "x": bx, "y": by, "z": bz,
+            "range": detect_u, "reveal": reveal_m / UNIT_METERS_BOT,
+            "half_cos": half_cos, "fwd_x": fwd_x, "fwd_z": fwd_z,
+            "penetration": float(active_sonar.get("thermoclinePenetration", 0)),
+            "rolls": {},
+        })
+        return []
 
     def update_active_sonar(self, world_data: Dict[str, Any]) -> None:
         """Front du ping local humain : 5 s strictes, puis revelation de 10 s."""
         now = self.now()
         for key, reveal in list(self._sonar_reveals.items()):
             observer, target = reveal["bot"], reveal["target"]
-            registry = self.bots if target.get("is_bot") else self.players
+            registry = self.bots if reveal["target_registry"] == "bots" else self.players
             if (now >= reveal["until"] or observer.get("sunk") or target.get("sunk")
                     or self.bots.get(observer["sid"]) is not observer
                     or registry.get(reveal["sid"]) is not target):
                 del self._sonar_reveals[key]
+            elif self.bot_target_los(observer, target["position"]):
+                reveal["position"] = dict(target["position"])
+                reveal["observed_at"] = now
         pending = []
         for ping in self._pending_sonar_pings:
             bot = ping["bot"]
@@ -2506,9 +2560,9 @@ class Sim:
             if elapsed <= 0:
                 continue
             front = elapsed / 5.0 * ping["range"]
-            targets = [(sid, p) for sid, p in self.players.items() if not p.get("is_bot")]
-            targets.extend(self.bots.items())
-            for sid, target in targets:
+            targets = [("players", sid, p) for sid, p in self.players.items() if not p.get("is_bot")]
+            targets.extend(("bots", sid, p) for sid, p in self.bots.items())
+            for target_registry, sid, target in targets:
                 if target is bot or target.get("sunk") or same_team(bot, target):
                     continue
                 pos = target.get("position") or {}
@@ -2520,13 +2574,6 @@ class Sim:
                 if distance > 0 and (dx * ping["fwd_x"] + dz * ping["fwd_z"]) / distance < ping["half_cos"]:
                     continue
                 if not geometry.line_of_sight_clear(ping["x"], ping["z"], x, z, world_data):
-                    continue
-                # Completer floor par les samples ceil du navigateur, sans changer les BT.
-                steps = max(2, math.ceil(distance / 5.0))
-                if world_data.get("islands") and any(
-                        geometry.point_on_any_island(ping["x"] + dx * i / steps,
-                                                     ping["z"] + dz * i / steps, world_data)
-                        for i in range(1, steps)):
                     continue
                 if geometry.count_thermoclines_crossed(
                         ping["x"], ping["y"], ping["z"], x, y, z, world_data, UNIT_METERS_BOT) > 0:
@@ -2542,35 +2589,49 @@ class Sim:
                 if key not in self._sonar_reveals:
                     self._sonar_reveals[key] = {
                         "bot": bot, "target": target, "sid": sid, "until": now + 10.0,
+                        # Le miroir players d'un bot live est un objet distinct.
+                        "target_registry": target_registry,
+                        "position": {"x": x, "y": y, "z": z}, "observed_at": now,
                     }
-                    if target.get("is_bot"):
+                    if target_registry == "bots":
                         bb = target.setdefault("bb", {})
                         bb["pinged_at"] = now
                         bb["pinged_by_pos"] = {"x": ping["x"], "z": ping["z"], "id": bot["id"]}
         self._pending_sonar_pings = pending
 
     def active_sonar_contacts(self, bot: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Positions courantes uniquement pendant une revelation deja acquise."""
+        """Revelation acquise : dernier point observe, fige derriere une ile."""
         contacts = []
         for reveal in self._sonar_reveals.values():
             target = reveal["target"]
-            registry = self.bots if target.get("is_bot") else self.players
+            registry = self.bots if reveal["target_registry"] == "bots" else self.players
             if (reveal["bot"] is not bot or self.now() >= reveal["until"]
                     or bot.get("sunk") or target.get("sunk")
                     or self.bots.get(bot["sid"]) is not bot
                     or registry.get(reveal["sid"]) is not target):
                 continue
-            pos = target["position"]
+            tracked = self.bot_target_los(bot, target["position"])
+            if tracked:
+                reveal["position"] = dict(target["position"])
+                reveal["observed_at"] = self.now()
+            pos = reveal["position"]
             contacts.append({
                 "id": target["id"], "sid": reveal["sid"],
                 "x": pos["x"], "y": pos.get("y", 0), "z": pos["z"],
                 "dist_m": math.hypot(pos["x"] - bot["position"]["x"],
                                      pos["z"] - bot["position"]["z"]) * UNIT_METERS_BOT,
                 "active_detected_until": reveal["until"],
+                "observed_at": reveal["observed_at"], "tracked": tracked,
             })
         return contacts
 
-    def spawn_bot_torpedo(self, bot: Dict[str, Any], target_player: Dict[str, Any]) -> bool:
+    def bot_target_los(self, bot: Dict[str, Any], position: Dict[str, Any]) -> bool:
+        """LOS de perception ; ne conditionne pas un lancement vers un point."""
+        origin = bot["position"]
+        return geometry.line_of_sight_clear(
+            origin["x"], origin["z"], position["x"], position["z"], self.world_data)
+
+    def spawn_bot_torpedo(self, bot: Dict[str, Any], target_player: Optional[Dict[str, Any]] = None) -> bool:
         """Lance une torpille tirée par un bot (même simu serveur que les humains)."""
         legacy = self._legacy
         boat = bot.get("boat") or {}
@@ -2589,17 +2650,17 @@ class Sim:
         bx = bot["position"]["x"]
         bz = bot["position"]["z"]
         by = bot["position"]["y"]
-        px = target_player["position"]["x"]
-        pz = target_player["position"]["z"]
-        py = target_player["position"].get("y", 0)
         max_range_m = spec.get("maxRangeMeters", 10000)
-        dx = px - bx
-        dz = pz - bz
-        dist_u = math.hypot(dx, dz)
-        if dist_u * UNIT_METERS_BOT > max_range_m * 0.7:
-            return False
-        dir_x = dx / max(0.001, dist_u)
-        dir_z = dz / max(0.001, dist_u)
+        initial_target = None
+        if target_player is not None:
+            px = target_player["position"]["x"]
+            pz = target_player["position"]["z"]
+            py = target_player["position"].get("y", 0)
+            initial_target = (px, py, pz)
+            if math.hypot(px - bx, pz - bz) * UNIT_METERS_BOT > max_range_m * 0.7:
+                return False
+        dir_x = -math.cos(bot["rotation"])
+        dir_z = math.sin(bot["rotation"])
         pid = bot["id"]
         next_tid = legacy.next_torpedo_tid
         tid = next_tid.get(pid, 1)
@@ -2635,8 +2696,8 @@ class Sim:
             "acquiredBoatId": None,
             "inAcquisition": False,
             "lastIntensity": 0.0,
-            "initialTarget": (px, py, pz),
-            "targetId": target_player["id"],
+            "initialTarget": initial_target,
+            "targetId": None if target_player is None or "observed_at" in target_player else target_player["id"],
             "wireYaw": 0,
             "wirePitch": 0,
             "notifiedTargets": set(),
@@ -2645,8 +2706,8 @@ class Sim:
         self.torpedoes[(pid, tid)] = t
         ammo[kind] = max(0, ammo.get(kind, 0) - 1)
         self._emit_torpedo_state(t)
-        target_id = target_player["id"]
-        if not target_player.get("is_bot"):
+        target_id = target_player["id"] if target_player is not None else None
+        if target_player is not None and "observed_at" not in target_player and not target_player.get("is_bot"):
             for sid2, other in self.players.items():
                 if other.get("id") == target_id:
                     self.emit(ev_mod.TorpedoAlert(
@@ -2660,7 +2721,7 @@ class Sim:
             t["notifiedTargets"].add(target_id)
         return True
 
-    def spawn_bot_torpedo_autonomous(self, bot: Dict[str, Any], target_player: Dict[str, Any],
+    def spawn_bot_torpedo_autonomous(self, bot: Dict[str, Any], target_player: Optional[Dict[str, Any]] = None,
                                      activation_m: float = None) -> bool:
         """Lance une torpille autonome avec activation_distance personnalisée.
         Si activation_m est None, utilise la valeur du JSON spec."""
@@ -2680,17 +2741,18 @@ class Sim:
         bx = bot["position"]["x"]
         bz = bot["position"]["z"]
         by = bot["position"]["y"]
-        px = target_player["position"]["x"]
-        pz = target_player["position"]["z"]
-        py = target_player["position"].get("y", 0)
-        dx = px - bx
-        dz = pz - bz
-        dist_u = math.hypot(dx, dz)
         max_range_m = spec.get("maxRangeMeters", 20000)
-        if dist_u * UNIT_METERS_BOT > max_range_m * 0.7:
-            return False
-        dir_x = dx / max(0.001, dist_u)
-        dir_z = dz / max(0.001, dist_u)
+        initial_target = None
+        if target_player is not None:
+            px = target_player["position"]["x"]
+            pz = target_player["position"]["z"]
+            py = target_player["position"].get("y", 0)
+            initial_target = (px, py, pz)
+            dist_u = math.hypot(px - bx, pz - bz)
+            if dist_u * UNIT_METERS_BOT > max_range_m * 0.7:
+                return False
+        dir_x = -math.cos(bot["rotation"])
+        dir_z = math.sin(bot["rotation"])
         pid = bot["id"]
         next_tid = legacy.next_torpedo_tid
         tid = next_tid.get(pid, 1)
@@ -2727,8 +2789,8 @@ class Sim:
             "acquiredBoatId": None,
             "inAcquisition": False,
             "lastIntensity": 0.0,
-            "initialTarget": (px, py, pz),
-            "targetId": target_player["id"],
+            "initialTarget": initial_target,
+            "targetId": None if target_player is None or "observed_at" in target_player else target_player["id"],
             "wireYaw": 0,
             "wirePitch": 0,
             "notifiedTargets": set(),
@@ -2737,6 +2799,8 @@ class Sim:
         # Diagnostic profondeur tir : pitch initial calculé sur horizon = minTurnRadius*1.5.
         try:
             import logging as _lg
+            if initial_target is None:
+                dist_u, py = 0.0, spawn_y
             horiz_clamp_u = max(0.001, min(dist_u, t["minTurnRadius"] * 1.5))
             init_pitch_deg = math.degrees(math.atan2(py - spawn_y, horiz_clamp_u))
             _lg.info(
@@ -2750,8 +2814,8 @@ class Sim:
         self.torpedoes[(pid, tid)] = t
         ammo["autonomous"] = max(0, ammo.get("autonomous", 0) - 1)
         self._emit_torpedo_state(t)
-        target_id = target_player["id"]
-        if not target_player.get("is_bot"):
+        target_id = target_player["id"] if target_player is not None else None
+        if target_player is not None and "observed_at" not in target_player and not target_player.get("is_bot"):
             for sid2, other in self.players.items():
                 if other.get("id") == target_id:
                     self.emit(ev_mod.TorpedoAlert(
@@ -2766,26 +2830,38 @@ class Sim:
         return True
 
     def bot_fire_cannon(self, bot: Dict[str, Any], target_player: Dict[str, Any]) -> bool:
-        """Tir canon d'un bot avec impact différé par l'horloge de simulation."""
-        import random as _random
+        """Le contact observe ou memorise fournit uniquement un point copie."""
+        return self.fire_cannon(bot["sid"], bot, target_player.get("position"))
+
+    def fire_cannon(self, sid: str, shooter: Dict[str, Any], point: Any,
+                    target_type: str = "boat") -> bool:
+        """Lance la meme parabole pour humains/BT/RL, sans guidage par identifiant."""
         legacy = self._legacy
-        boat = bot.get("boat") or {}
+        boat = shooter.get("boat") or {}
         cannon = boat.get("cannon")
-        if not cannon:
+        if not cannon or shooter.get("sunk") or self.now() < shooter.get("next_cannon_at", 0):
             return False
-        sid = bot["sid"]
+        if not isinstance(point, dict):
+            return False
+        coords = [point.get("x"), point.get("y", 0.0), point.get("z")]
+        if any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)
+               for v in coords):
+            return False
+        px, py, pz = coords
+        bx, by, bz = (shooter["position"][axis] for axis in ("x", "y", "z"))
+        if shooter.get("boatType") == "submarine" and by < -boat.get("flotation", 2) / UNIT_METERS_BOT - 0.05:
+            return False
+        range_m = cannon.get("range", 8000)
+        dx, dz = px - bx, pz - bz
+        dist_m = math.hypot(dx, dz) * UNIT_METERS_BOT
+        # Un deplacement non resoluble au carre annule le solveur, voire la duree.
+        if not math.isfinite(dist_m) or not 0 < dist_m <= range_m or dx * dx + dz * dz == 0:
+            return False
         ammo = legacy.cannon_ammo.get(sid)
         if ammo is None:
             legacy.init_cannon_ammo_for_sid(sid)
             ammo = legacy.cannon_ammo.get(sid) or {}
         if ammo.get("cannon", 0) <= 0:
-            return False
-        range_m = cannon.get("range", 8000)
-        bx, by, bz = bot["position"]["x"], bot["position"]["y"], bot["position"]["z"]
-        pos = target_player.get("position") or {}
-        px, py, pz = pos.get("x", 0), pos.get("y", 0), pos.get("z", 0)
-        dist_m = math.hypot(px - bx, pz - bz) * UNIT_METERS_BOT
-        if dist_m > range_m:
             return False
         ammo["cannon"] = max(0, ammo.get("cannon", 0) - 1)
         legacy.emit_cannon_counts(sid)
@@ -2795,11 +2871,11 @@ class Sim:
             hit_prob = max_prob
         else:
             hit_prob = max_prob - (max_prob - min_prob) * ((dist_m - half_range) / max(1.0, range_m - half_range))
-        hit = _random.random() < hit_prob
+        hit = random.random() < (hit_prob if target_type in ("boat", "point") else 1.0)
         end_x, end_y, end_z = px, py, pz
         if not hit:
             miss_r = 8.0 / UNIT_METERS_BOT
-            ang = _random.uniform(0, math.tau)
+            ang = random.uniform(0, math.tau)
             end_x += math.cos(ang) * miss_r
             end_z += math.sin(ang) * miss_r
         CANNON_SHELL_SPEED_MS = 500.0
@@ -2807,52 +2883,121 @@ class Sim:
         duration_ms = flight_s * 1000.0
         dist_u = math.hypot(end_x - bx, end_z - bz)
         range_u = range_m / UNIT_METERS_BOT
+        if dist_u > range_u:
+            end_x = bx + (end_x - bx) * range_u / dist_u
+            end_z = bz + (end_z - bz) * range_u / dist_u
+            dist_u = range_u
         arc_height = dist_u * 0.25 * min(1.0, dist_u / max(1.0, range_u))
-        start_y = 0.5
+        start_y = 0.5 if shooter.get("boatType") == "destroyer" else 0.0
+        shot_id = self._next_cannon_shot
+        self._next_cannon_shot += 1
         self.emit(ev_mod.CannonFire(
-            shooter_id=bot["id"], kind="cannon",
+            shooter_id=shooter["id"], kind="cannon",
             start_x=bx, start_y=start_y, start_z=bz,
             end_x=end_x, end_y=end_y, end_z=end_z,
             arc_height=arc_height, duration=duration_ms,
-            impact=True,
+            impact=True, shot_id=shot_id,
         ))
-        if hit:
-            self._pending_cannon_hits.append({
-                "at": self.now() + flight_s,
-                "shooter_id": bot["id"],
-                "target_id": target_player["id"],
-                "damage": float(cannon.get("damage", 8)),
-            })
+        self.cannon_shells.append({
+            "shot_id": shot_id, "shooter_id": shooter["id"], "at": self.now(),
+            "duration": flight_s, "u": 0.0, "start_x": bx, "start_y": start_y, "start_z": bz,
+            "end_x": end_x, "end_y": end_y, "end_z": end_z, "arc_height": arc_height,
+            "damage": float(cannon.get("damage", 30)), "range_m": range_m,
+        })
         return True
 
-    def update_pending_cannon_hits(self) -> None:
-        """Résout les obus arrivés à destination sans dépendre de Socket.IO."""
-        now = self.now()
+    def update_cannon_shells(self) -> None:
+        """Collision continue sur la parabole; volumes reels echantillonnes au tick."""
         pending = []
-        for hit in self._pending_cannon_hits:
-            if hit["at"] > now:
-                pending.append(hit)
+        for shell in self.cannon_shells:
+            lo = shell["u"]
+            hi = min(1.0, max(lo, (self.now() - shell["at"]) / shell["duration"]))
+            sx, sy, sz = (shell["start_" + axis] for axis in ("x", "y", "z"))
+            dx, dz = shell["end_x"] - sx, shell["end_z"] - sz
+            a = -4 * shell["arc_height"]
+            b = shell["end_y"] - sy - a
+            def position(u: float) -> Tuple[float, float, float]:
+                return sx + dx * u, sy + b * u + a * u * u, sz + dz * u
+            x0, _, z0 = position(lo)
+            x1, _, z1 = position(hi)
+            island = geometry.first_island_intersection(x0, z0, x1, z1, self.world_data)
+            best = lo + (hi - lo) * island if island is not None else float("inf")
+            victim = None
+            reason = "island"
+            # Le rayon reprend la demi-longueur torpille (100 m par defaut),
+            # la tolerance verticale directe existante vaut 0.4 u (4 m).
+            objects = []
+            for sid, p in list(self.players.items()):
+                if p.get("sunk") or p.get("id") == shell["shooter_id"]:
+                    continue
+                pos, boat = p.get("position") or {}, p.get("boat") or {}
+                if pos.get("y", 0) < -boat.get("flotation", 2) / UNIT_METERS_BOT - 0.05:
+                    continue
+                objects.append(("boat", sid, p, pos,
+                                float(boat.get("lengthMeters") or 100) / (2 * UNIT_METERS_BOT), 0.4))
+            for kind, store in (("beacon", self.beacons),
+                                ("passive_beacon", self._legacy.passive_sonar_beacons), ("mine", self.mines)):
+                for key, obj in list(store.items()):
+                    if kind != "mine" or obj.get("kind") == "surface":
+                        objects.append((kind, key, obj, dict(obj, y=0.0), 1.0, 0.4))
+            for kind, key, obj, pos, radius, vertical in objects:
+                ox, oz = sx - pos.get("x", 0), sz - pos.get("z", 0)
+                qa, qb = dx * dx + dz * dz, 2 * (ox * dx + oz * dz)
+                qc = ox * ox + oz * oz - radius * radius
+                if not math.isfinite(qa) or qa <= 0:
+                    continue
+                disc = qb * qb - 4 * qa * qc
+                if not math.isfinite(disc) or disc < 0:
+                    continue
+                root = math.sqrt(disc)
+                enter, leave = max(lo, (-qb - root) / (2 * qa)), min(hi, (-qb + root) / (2 * qa))
+                if enter > leave:
+                    continue
+                cuts = [enter, leave]
+                for level in (pos.get("y", 0) - vertical, pos.get("y", 0) + vertical):
+                    c = sy - level
+                    if a:
+                        d = b * b - 4 * a * c
+                        if d >= 0:
+                            cuts.extend(u for u in ((-b - math.sqrt(d)) / (2 * a),
+                                                   (-b + math.sqrt(d)) / (2 * a)) if enter <= u <= leave)
+                    elif b and enter <= -c / b <= leave:
+                        cuts.append(-c / b)
+                for u in sorted(cuts):
+                    if abs(position(u)[1] - pos.get("y", 0)) <= vertical + 1e-9 and u < best:
+                        best, victim, reason = u, (kind, key, obj), kind
+                        break
+            if best == float("inf") and hi < 1:
+                shell["u"] = hi
+                pending.append(shell)
                 continue
-            target_id = hit["target_id"]
-            damage = hit["damage"]
-            attacker_id = hit["shooter_id"]
-            self.emit(ev_mod.CannonHit(
-                shooter_id=attacker_id,
-                target_id=target_id,
-                damage=damage,
-            ))
-            sid, target_bot = self.find_bot_by_player_id(target_id)
-            if target_bot is not None:
-                self.bot_apply_damage(sid, target_bot, damage, attacker_id)
-                continue
-            for human_sid, player in self.players.items():
-                if player.get("id") == target_id and not player.get("is_bot"):
-                    self.apply_player_damage(human_sid, player, damage, attacker_id)
-                    break
-        self._pending_cannon_hits = pending
+            if best == float("inf"):
+                best, reason = 1.0, "range"
+            x, y, z = position(best)
+            self.emit(ev_mod.CannonImpact(shooter_id=shell["shooter_id"], shot_id=shell["shot_id"],
+                                         x=x, y=y, z=z, reason=reason))
+            if victim:
+                kind, key, obj = victim
+                if kind == "boat":
+                    self.emit(ev_mod.CannonHit(shooter_id=shell["shooter_id"], target_id=obj["id"], damage=shell["damage"]))
+                    if key in self.bots:
+                        self.bot_apply_damage(key, self.bots[key], shell["damage"], shell["shooter_id"])
+                    else:
+                        self.apply_player_damage(key, obj, shell["damage"], shell["shooter_id"])
+                elif kind == "mine":
+                    self.explode_server_mine(obj, trigger_id=shell["shooter_id"])
+                elif kind == "beacon":
+                    self.beacons.pop(key, None)
+                    self.emit(ev_mod.SonarBeaconDestroyed(bid=key))
+                else:
+                    self._legacy.passive_sonar_beacons.pop(key, None)
+                    self.emit(ev_mod.PassiveSonarBeaconDestroyed(bid=key))
+        self.cannon_shells = pending
 
     def bot_fire_aa(self, bot: Dict[str, Any], drone: Dict[str, Any]) -> bool:
         """Tir DCA bot vers un drone. Émet CannonFire ; kill différé via socketio."""
+        if not self.bot_target_los(bot, drone):
+            return False
         import random as _random
         legacy = self._legacy
         aa = (bot.get("boat") or {}).get("antiAircraft")
@@ -2908,48 +3053,21 @@ class Sim:
         return True
 
     def bot_torpedoes_threat(self, bot: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Liste des torpilles qui menacent ce bot, triées par eta_s croissant."""
-        legacy = self._legacy
-        closest_approach_on_segment = legacy.closest_approach_on_segment
-        bot_id = bot.get("id")
-        bx = bot["position"]["x"]
-        bz = bot["position"]["z"]
+        """ETA positives d'abord ; les CPA passes proches restent representes."""
         out = []
-        THREAT_CPA_M = 200.0
-        THREAT_HORIZON_S = 10.0
-        for key, t in self.torpedoes.items():
-            if t.get("ownerPlayerId") == bot_id:
+        for t in self.torpedoes.values():
+            threat = torpedo_radar_threat(bot, t, self.world_data)
+            if threat is None:
                 continue
-            tx = t["x"]
-            tz = t["z"]
-            dx_now = bx - tx
-            dz_now = bz - tz
-            dist_now = math.hypot(dx_now, dz_now) * UNIT_METERS_BOT
-            if t.get("acquiredBoatId") == bot_id:
-                out.append({
-                    "tid": t.get("tid"), "ownerId": t.get("ownerPlayerId"), "kind": t.get("kind"),
-                    "dist_m": dist_now, "cpa_m": dist_now, "eta_s": 0.0,
-                    "x": tx, "z": tz, "dirX": t.get("dirX", 0), "dirZ": t.get("dirZ", 0),
-                    "speed": t.get("speed", 0),
-                })
-                continue
-            speed_us = t.get("speed", 0)
-            if speed_us <= 0.001:
-                continue
-            end_x = tx + t.get("dirX", 0) * speed_us * THREAT_HORIZON_S
-            end_z = tz + t.get("dirZ", 0) * speed_us * THREAT_HORIZON_S
-            t_raw, cpa = closest_approach_on_segment(bx, bz, tx, tz, end_x, end_z)
-            cpa_m = cpa * UNIT_METERS_BOT
-            if cpa_m > THREAT_CPA_M:
-                continue
-            eta_s = max(0.0, min(THREAT_HORIZON_S, t_raw * THREAT_HORIZON_S))
+            dist_now, cpa_m, eta_s = threat
             out.append({
-                "tid": t.get("tid"), "ownerId": t.get("ownerPlayerId"), "kind": t.get("kind"),
+                "tid": t.get("tid"), "ownerId": t.get("ownerPlayerId"), "kind": None,
+                "ownerPlayerId": t.get("ownerPlayerId"),
                 "dist_m": dist_now, "cpa_m": cpa_m, "eta_s": eta_s,
-                "x": tx, "z": tz, "dirX": t.get("dirX", 0), "dirZ": t.get("dirZ", 0),
-                "speed": speed_us,
+                "x": t["x"], "z": t["z"], "dirX": t.get("dirX", 0), "dirZ": t.get("dirZ", 0),
+                "speed": t.get("speed", 0),
             })
-        out.sort(key=lambda d: d["eta_s"])
+        out.sort(key=lambda d: (d["eta_s"] <= 0.0, d["eta_s"]))
         return out
 
     # ===================== TICK BOT (BT + legacy fallback) =====================
@@ -3165,6 +3283,7 @@ class Sim:
             sync["reverse"] = bot["speed"] < 0
             sync["rudder"] = bot["rudder"]
             sync["integrity"] = bot.get("integrity", 100.0)
+            sync["maxIntegrity"] = bot.get("maxIntegrity", 100.0)
 
     def update_bot_legacy(self, bot: Dict[str, Any], dt: float, world_data: Dict[str, Any]) -> None:
         """Tick legacy : navigation waypoint + détection passive + tirs réactifs."""
@@ -3238,10 +3357,12 @@ class Sim:
             sync["position"] = dict(bot["position"])
             sync["rotation"] = bot["rotation"]
         # Détection passive (~1 Hz).
+        from bot_ai import _remember_contacts
         now = self.now()
         if now - bot.get("next_detect_at", 0) >= 0:
             bot["next_detect_at"] = now + 1.0
             detected = self.detect_enemies_passive(bot, world_data)
+            _remember_contacts(bot, detected, self.players, now)
             new_ids = {d["id"] for d in detected}
             bot["last_detected_ids"] = new_ids
         bots_passive = bool(getattr(legacy, "bots_passive", False))
@@ -3256,11 +3377,7 @@ class Sim:
                 max_range_m = spec.get("maxRangeMeters", 10000)
                 target_player = None
                 best_dist = float("inf")
-                for sid, p in self.players.items():
-                    if p.get("id") == bot.get("id"):
-                        continue
-                    if same_team(bot, p):
-                        continue
+                for p in bot.get("detected_targets", {}).values():
                     if p["id"] not in (bot.get("last_detected_ids") or set()):
                         continue
                     pos = p.get("position") or {}
@@ -3280,12 +3397,10 @@ class Sim:
             range_m = cannon.get("range", 8000)
             target_player = None
             best_dist = float("inf")
-            for sid, p in self.players.items():
-                if p.get("id") == bot.get("id"):
-                    continue
-                if same_team(bot, p):
-                    continue
+            for p in bot.get("detected_targets", {}).values():
                 if p["id"] not in (bot.get("last_detected_ids") or set()):
+                    continue
+                if not self.bot_target_los(bot, p["position"]):
                     continue
                 pos = p.get("position") or {}
                 if pos.get("y", 0) < -0.6:
@@ -3334,7 +3449,7 @@ class Sim:
             world_data = self.world_data
         if not world_data:
             return
-        self.update_pending_cannon_hits()
+        self.update_cannon_shells()
         self.update_active_sonar(world_data)
         self.update_server_torpedoes(dt, world_data)
         self.update_server_drones(dt, world_data)
@@ -3369,6 +3484,7 @@ class Sim:
                         reverse=_rev,
                         speed_ratio=_sr,
                         integrity=_int,
+                        max_integrity=p.get("maxIntegrity", 100.0),
                         submerged=_sub,
                     ))
         # Bots.
@@ -3397,6 +3513,7 @@ class Sim:
                         reverse=_rev,
                         speed_ratio=speed_ratio,
                         integrity=_int,
+                        max_integrity=bot.get("maxIntegrity", 100.0),
                         submerged=_sub,
                     ))
 
@@ -3415,7 +3532,8 @@ class Sim:
         self.lures.clear()
         self._active_wire.clear()
         self._events.clear()
-        self._pending_cannon_hits.clear()
+        self.cannon_shells.clear()
+        self._next_cannon_shot = 0
         self._pending_sonar_pings.clear()
         self._sonar_reveals.clear()
         self._danger_zones_cache = {"world_id": None, "zones": []}

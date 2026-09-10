@@ -6,7 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from rl.analyze_evaluation_reports import analyze, paired_difference, validate_report
+from rl.analyze_evaluation_reports import analyze, paired_difference, seed_clustered_difference, validate_report
 
 
 class AnalysisTest(unittest.TestCase):
@@ -59,6 +59,24 @@ class AnalysisTest(unittest.TestCase):
         self.assertAlmostEqual(result["ci95_pp"][1], 50 + 196 * (0.125 ** 0.5))
         with self.assertRaises(ValueError):
             paired_difference([[1]])
+
+    def test_seed_clusters_preserve_covariance(self) -> None:
+        result = seed_clustered_difference({10: {("a",): [0, 1], ("b",): [0, 1]}})
+        self.assertEqual(result["seed_clusters"], 2)
+        self.assertEqual(result["match_pairs"], 4)
+        self.assertEqual(result["ci95_pp"], [-48, 148])
+        result = seed_clustered_difference({10: {("a",): [0, 1], ("b",): [1, 0]}})
+        self.assertEqual(result["ci95_pp"], [50, 50])
+        result = seed_clustered_difference({10: {("a",): [1, 1]}, 20: {("a",): [-1, -1]}})
+        self.assertEqual(result["ci95_pp"], [0, 0])
+
+    def test_reject_invalid_seed_clusters(self) -> None:
+        for series in ({}, {10: {}}, {10: {("a",): [1]}},
+                       {10: {("a",): [0, 1], ("b",): [0]}},
+                       {10: {("a",): [0, 1]}, 11: {("a",): [0, 1]}},
+                       {10: {("a",): [0, 1]}, 20: {("b",): [0, 1]}}):
+            with self.subTest(series=series), self.assertRaises(ValueError):
+                seed_clustered_difference(series)
 
 
 if __name__ == "__main__":

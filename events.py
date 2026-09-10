@@ -33,6 +33,24 @@ class Event:
 # ===================== Cycle de vie joueur =====================
 
 @dataclass
+class RLDecision(Event):
+    """Diagnostic opt-in apres application, jamais envoye sur le reseau."""
+    player_id: str
+    control_version: str
+    decision_at: float
+    physics_dt: float
+    simulation_step: int
+    decision_interval_s: float
+    episode_start: bool
+    observation: List[float]
+    action: List[int]
+    result: Dict[str, Any]
+    visible_threat: Optional[Dict[str, Any]]
+    model_id: Optional[str]
+    model_sha256: Optional[str]
+
+
+@dataclass
 class PlayerJoined(Event):
     """Un nouveau participant (humain, bot ou bateau secondaire) entre."""
     player_data: Dict[str, Any]  # snapshot complet du player dict (id, boatType, boat, position, rotation, ...)
@@ -53,6 +71,15 @@ class PlayerMoved(Event):
     speed_ratio: Optional[float]
     integrity: float
     submerged: bool = False
+    max_integrity: float = 100.0
+
+
+@dataclass
+class BotTeleported(Event):
+    actor_id: str
+    player_id: str
+    old_position: Dict[str, float]
+    position: Dict[str, float]
 
 
 @dataclass
@@ -98,6 +125,7 @@ class OwnBoatAdded(Event):
 class IntegrityChanged(Event):
     bsid: Optional[str]
     value: float
+    max_integrity: float = 100.0
 
 
 @dataclass
@@ -210,6 +238,7 @@ class TorpedoExploded(Event):
 class TorpedoDead(Event):
     owner_id: str
     tid: int
+    reason: Optional[str] = None
 
 
 # ===================== Drones =====================
@@ -340,7 +369,7 @@ class PassiveSonarDetection(Event):
 class SonarPinged(Event):
     """Un autre joueur a déclenché son sonar actif."""
     player_id: str
-    x: float; z: float
+    x: float; z: float; y: float
     cone_deg: float = 360.0
     rotation: float = 0.0
     range_m: float = 0.0
@@ -354,6 +383,16 @@ class LureDropped(Event):
     x: float; y: float; z: float
     noise: float
     duration_ms: float
+    integrity: float = 10.0
+    max_integrity: float = 10.0
+
+
+@dataclass
+class LureIntegrityChanged(Event):
+    owner_id: str
+    lid: int
+    integrity: float
+    max_integrity: float
 
 
 @dataclass
@@ -373,6 +412,7 @@ class CannonFire(Event):
     arc_height: float
     duration: float
     impact: bool
+    shot_id: Optional[int] = None
 
 
 @dataclass
@@ -380,6 +420,14 @@ class CannonHit(Event):
     shooter_id: str
     target_id: str
     damage: float
+
+
+@dataclass
+class CannonImpact(Event):
+    shooter_id: str
+    shot_id: int
+    x: float; y: float; z: float
+    reason: str
 
 
 # ===================== Wake / divers =====================

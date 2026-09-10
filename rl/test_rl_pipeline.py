@@ -414,7 +414,7 @@ class GymEnvironmentTest(unittest.TestCase):
         self.assertEqual(49, self.runner.legacy.cannon_ammo[destroyer_sid]["cannon"])
         self.assertEqual(100.0, target["integrity"])
         self.runner.step(0.05)
-        self.assertEqual(100.0, target["integrity"])
+        self.assertEqual(70.0, target["integrity"])
         self.runner.step(0.1)
         self.assertEqual(70.0, target["integrity"])
 
@@ -431,6 +431,9 @@ class GymEnvironmentTest(unittest.TestCase):
 
         detected = self.runner.sim.bot_sonar_ping(
             self.runner.legacy.bots[destroyer_sid], self.runner.world)
+        self.assertEqual([], detected)
+        self.runner.step(0.05)
+        detected = self.runner.sim.active_sonar_contacts(self.runner.legacy.bots[destroyer_sid])
         self.assertEqual([target["id"]], [item["id"] for item in detected])
 
     def test_observation_keeps_only_last_detected_position(self) -> None:
@@ -456,12 +459,14 @@ class GymEnvironmentTest(unittest.TestCase):
         self.assertEqual(0.0, remembered[10])
         self.assertEqual(last_x, agent["rl_contact"]["x"])
 
-    def test_weapon_requires_a_fresh_contact(self) -> None:
+    def test_weapon_without_contact_fires_without_hidden_aim(self) -> None:
         agent = self.runner.legacy.bots[self.agent_sid]
         result = apply_action(agent, self.runner.sim, [2, 1, 2, 1, 0])
-        self.assertFalse(result["weapon_fired"])
-        self.assertTrue(result["weapon_invalid"])
-        self.assertEqual({}, self.runner.legacy.torpedoes_server)
+        self.assertTrue(result["weapon_fired"])
+        self.assertFalse(result["weapon_invalid"])
+        torpedo = next(iter(self.runner.legacy.torpedoes_server.values()))
+        self.assertIsNone(torpedo["initialTarget"])
+        self.assertIsNone(torpedo["targetId"])
 
 
 if __name__ == "__main__":

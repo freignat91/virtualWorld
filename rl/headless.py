@@ -154,7 +154,9 @@ class HeadlessLegacy:
             "pick_bot_waypoint": self.sim.pick_bot_waypoint,
             "point_on_any_island": geometry.point_on_any_island,
             "detect_enemies_passive": self.sim.detect_enemies_passive,
+            "active_sonar_contacts": self.sim.active_sonar_contacts,
             "spawn_bot_torpedo": self.sim.spawn_bot_torpedo,
+            "bot_target_los": self.sim.bot_target_los,
             "spawn_bot_torpedo_autonomous": self.sim.spawn_bot_torpedo_autonomous,
             "bot_torpedoes_status": lambda owner_id: [
                 torpedo for torpedo in self.torpedoes_server.values()
@@ -260,13 +262,14 @@ class HeadlessRunner:
             "next_cannon_at": 0.0, "next_aa_at": 0.0,
             "next_grenade_at": 0.0, "next_mine_at": 0.0,
             "last_detected_ids": set(), "last_emit": 0.0,
-            "waypoint": None, "integrity": 100.0,
+            "waypoint": None,
             "ai_name": selected_ai, "ai_tree": ai_tree,
             "external_control": external_control,
             "control_target_rudder": 0.0,
             "control_target_speed_ratio": 0.0,
             "control_target_depth_y": spawn_y,
         }
+        simulation.init_hull_integrity(bot)
         self.legacy.bots[sid] = bot
         self.legacy.players[sid] = {
             "sid": sid, "id": player_id, "is_bot": True,
@@ -274,7 +277,7 @@ class HeadlessRunner:
             "position": dict(bot["position"]), "rotation": bot["rotation"],
             "speed": 0.0, "speedRatio": 0.0, "reverse": False,
             "rudder": 0.0, "rudder_max": bot["rudder_max"], "max_speed_us": max_speed_us,
-            "integrity": 100.0,
+            "integrity": bot["integrity"], "maxIntegrity": bot["maxIntegrity"],
         }
         self.legacy.init_torpedo_ammo_for_sid(sid)
         self.legacy.init_drone_ammo_for_sid(sid)

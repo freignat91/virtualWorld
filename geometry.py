@@ -54,7 +54,7 @@ def point_on_any_island(x: float, z: float, world_data: Dict[str, Any]) -> bool:
 
 def line_of_sight_clear(x1: float, z1: float, x2: float, z2: float,
                         world_data: Dict[str, Any]) -> bool:
-    """Vrai si le segment ne traverse aucune île. Échantillonnage 5 u (50 m)."""
+    """Vrai si le segment ferme ne touche aucune ile, sans echantillonnage."""
     bounds_list = ensure_island_bounds(world_data)
     if not bounds_list:
         return True
@@ -64,27 +64,49 @@ def line_of_sight_clear(x1: float, z1: float, x2: float, z2: float,
     seg_max_x = x2 if dx >= 0 else x1
     seg_min_z = z1 if dz >= 0 else z2
     seg_max_z = z2 if dz >= 0 else z1
-    candidates = []
     for b in bounds_list:
         if b["maxX"] < seg_min_x or b["minX"] > seg_max_x:
             continue
         if b["maxZ"] < seg_min_z or b["minZ"] > seg_max_z:
             continue
-        candidates.append(b)
-    if not candidates:
-        return True
-    length = (dx * dx + dz * dz) ** 0.5
-    steps = max(2, int(length / 5))
-    for i in range(1, steps):
-        t = i / steps
-        x = x1 + dx * t
-        z = z1 + dz * t
-        for b in candidates:
-            if x < b["minX"] or x > b["maxX"] or z < b["minZ"] or z > b["maxZ"]:
-                continue
-            if point_in_polygon(x, z, b["points"]):
+        points = b["points"]
+        if point_in_polygon(x1, z1, points) or point_in_polygon(x2, z2, points):
+            return False
+        for i, a in enumerate(points):
+            c = points[(i + 1) % len(points)]
+            if segments_intersect(x1, z1, x2, z2, a["x"], a["z"], c["x"], c["z"],
+                                  include_boundary=True):
                 return False
     return True
+
+
+def first_island_intersection(x1: float, z1: float, x2: float, z2: float,
+                              world_data: Dict[str, Any]) -> Optional[float]:
+    """Premier contact du segment ferme XZ, y compris tangence et colinearite."""
+    dx, dz = x2 - x1, z2 - z1
+    length_sq = dx * dx + dz * dz
+    best = None
+    for bounds in ensure_island_bounds(world_data):
+        points = bounds["points"]
+        if point_in_polygon(x1, z1, points):
+            return 0.0
+        for i, a in enumerate(points):
+            b = points[(i + 1) % len(points)]
+            if not segments_intersect(x1, z1, x2, z2, a["x"], a["z"], b["x"], b["z"],
+                                      include_boundary=True):
+                continue
+            ex, ez = b["x"] - a["x"], b["z"] - a["z"]
+            cross = dx * ez - dz * ex
+            if cross:
+                u = ((a["x"] - x1) * ez - (a["z"] - z1) * ex) / cross
+            elif length_sq:
+                u = max(0.0, min(((p["x"] - x1) * dx + (p["z"] - z1) * dz) / length_sq
+                                 for p in (a, b)))
+            else:
+                u = 0.0
+            u = max(0.0, min(1.0, u))
+            best = u if best is None else min(best, u)
+    return best
 
 
 def count_thermoclines_crossed(x1: float, y1: float, z1: float,
@@ -152,13 +174,23 @@ def closest_approach_on_segment(px, pz, ax, az, bx, bz) -> Tuple[float, float]:
     return t_raw, ((px - cx) ** 2 + (pz - cz) ** 2) ** 0.5
 
 
-def segments_intersect(ax, az, bx, bz, cx, cz, dx, dz) -> bool:
+def segments_intersect(ax: float, az: float, bx: float, bz: float,
+                       cx: float, cz: float, dx: float, dz: float,
+                       *, include_boundary: bool = False) -> bool:
+    """Mode ferme pour les iles ; comportement historique des impacts par defaut."""
     def orient(x1, z1, x2, z2, x3, z3):
         return (x2 - x1) * (z3 - z1) - (z2 - z1) * (x3 - x1)
     o1 = orient(ax, az, bx, bz, cx, cz)
     o2 = orient(ax, az, bx, bz, dx, dz)
     o3 = orient(cx, cz, dx, dz, ax, az)
     o4 = orient(cx, cz, dx, dz, bx, bz)
+    if include_boundary:
+        if max(ax, bx) < min(cx, dx) or max(cx, dx) < min(ax, bx):
+            return False
+        if max(az, bz) < min(cz, dz) or max(cz, dz) < min(az, bz):
+            return False
+        return ((o1 <= 0 <= o2 or o2 <= 0 <= o1)
+                and (o3 <= 0 <= o4 or o4 <= 0 <= o3))
     return (o1 > 0) != (o2 > 0) and (o3 > 0) != (o4 > 0)
 
 

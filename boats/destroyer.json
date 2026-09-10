@@ -1,6 +1,7 @@
 {
   "model": "models/sousMarin/scene.glb",
   "speed": 30,
+  "integrity": 200,
   "scale": 5,
   "noise": 1000,
   "minNoise": 25,
@@ -34,6 +35,7 @@
     "minNoise": 140.6
   },
   "acousticLures": {
+    "integrity": 10,
     "number": 20,
     "time": 2,
     "noise": 800

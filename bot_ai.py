@@ -23,12 +23,16 @@ Le contexte `ctx` passé à chaque tick contient :
                 un import circulaire bot_ai → server
 """
 
+import copy
 import json
 import logging
 import math
 import os
 import random
 import time
+import simulation
+import geometry
+from typing import Any, Dict, Iterable, Optional
 
 # ===================== Status & Nodes =====================
 
@@ -323,8 +327,7 @@ def cond_torpedo_far(ctx, params):
 
 @register_condition("torpedo_acquired")
 def cond_torpedo_acquired(ctx, params):
-    """Vrai si au moins une torpille menaçante a acquis ce bot (acquiredBoatId match),
-    OU si une évasion est en cours (bb['_evade'] non None)."""
+    """ETA geometrique nulle ou evasion en cours ; ne prouve aucun verrou."""
     bb = ctx["bot"].setdefault("bb", {})
     if bb.get("_evade") is not None:
         return True
@@ -340,7 +343,7 @@ def cond_torpedo_acquired(ctx, params):
         return False
     acquired = [t for t in threats if t["eta_s"] == 0.0 and t["dist_m"] < float(params.get("max_dist_m", 5000.0))]
     if acquired:
-        logging.info(f"[bt-evade] {bot['id']} torpedo_acquired=True ({len(acquired)} torpille(s) acquise(s), plus proche à {acquired[0]['dist_m']:.0f}m)")
+        logging.info(f"[bt-evade] {bot['id']} ETA nulle ({len(acquired)} menace(s), plus proche a {acquired[0]['dist_m']:.0f}m)")
         return True
     return False
 
@@ -400,6 +403,8 @@ def cond_has_human_drone_in_range(ctx, params):
         owner_pid = drone["ownerPlayerId"]
         owner = next((p for p in players.values() if p["id"] == owner_pid), None)
         if owner is None or owner.get("is_bot"):
+            continue
+        if not ctx["deps"]["bot_target_los"](bot, drone):
             continue
         dx = drone["x"] - bx
         dz = drone["z"] - bz
@@ -542,35 +547,77 @@ def act_sync_player(ctx, params):
     return Status.SUCCESS
 
 
+def _remember_contacts(bot: Dict[str, Any], detected: Iterable[Dict[str, Any]],
+                       players: Dict[str, Any], now: float) -> None:
+    """Copie les donnees au moment de la detection, jamais au moment du tir."""
+    targets = {}
+    for contact in detected:
+        player = next((p for p in players.values() if p.get("id") == contact["id"]), None)
+        if player is None:
+            continue
+        targets[contact["id"]] = {
+            "id": contact["id"], "sid": contact["sid"],
+            "position": {axis: contact[axis]
+                         for axis in ("x", "y", "z")},
+            "boat": copy.deepcopy(player.get("boat") or {}),
+            "boatType": player.get("boatType"), "is_bot": player.get("is_bot"),
+            "observed_at": contact.get("observed_at", now),
+        }
+    bot["detected_targets"] = targets
+
+
+def _known_targets(bot: Dict[str, Any], now: float,
+                   max_age_s: Optional[float] = None) -> Iterable[Dict[str, Any]]:
+    """Selection sur snapshots ; la memoire n'ajoute pas de detection actuelle."""
+    ids = bot.get("last_detected_ids") or set()
+    targets = {pid: dict(target, tracked=True)
+               for pid, target in bot.get("detected_targets", {}).items() if pid in ids}
+    last = (bot.get("bb") or {}).get("last_enemy_pos") or {}
+    if max_age_s is not None and now - last.get("t", 0) < max_age_s and last.get("target"):
+        target = last["target"]
+        targets.setdefault(target["id"], dict(target, tracked=False))
+    return targets.values()
+
+
 @register_action("passive_detection")
 def act_passive_detection(ctx, params):
-    """Détection passive ~1 Hz. Met à jour bot['last_detected_ids'] et
-    enregistre la position du plus proche dans bb['last_enemy_pos']."""
+    """Passif a 1 Hz, revelations actives a chaque tick ; memoire sans suivi cache."""
     bot = ctx["bot"]
     now = ctx["now"]
-    if now - bot.get("next_detect_at", 0) < 0:
-        return Status.SUCCESS
-    bot["next_detect_at"] = now + 1.0
-    detected = ctx["deps"]["detect_enemies_passive"](bot, ctx["world"])
+    if now >= bot.get("next_detect_at", 0):
+        bot["next_detect_at"] = now + 1.0
+        bot["passive_contacts"] = [dict(contact, observed_at=now) for contact in
+                                   ctx["deps"]["detect_enemies_passive"](bot, ctx["world"])]
+    active = ctx["deps"]["active_sonar_contacts"](bot)
+    contacts = {contact["id"]: contact for contact in bot.get("passive_contacts", [])}
+    for contact in active:
+        previous = contacts.get(contact["id"])
+        if previous is None or contact["observed_at"] >= previous["observed_at"]:
+            contacts[contact["id"]] = contact
+    detected = list(contacts.values())
+    _remember_contacts(bot, detected, ctx["deps"]["players"], now)
     prev = bot.get("last_detected_ids") or set()
-    new_ids = {d["id"] for d in detected}
+    new_ids = {d["id"] for d in detected if d.get("tracked", True)}
     added = new_ids - prev
     lost = prev - new_ids
     for d in detected:
         if d["id"] in added:
-            logging.info(f"[bot-detect] {bot['id']} entend {d['id']} à {d['dist_m']:.0f} m (sr={d['speedRatio']:.2f})")
+            logging.info(f"[bot-detect] {bot['id']} detecte {d['id']} a {d['dist_m']:.0f} m")
     for pid in lost:
         logging.info(f"[bot-detect] {bot['id']} perd {pid}")
     bot["last_detected_ids"] = new_ids
     # Enregistrer la position de l'ennemi le plus proche dans le blackboard.
     bb = bot.setdefault("bb", {})
     if detected:
-        closest = min(detected, key=lambda d: d["dist_m"])
+        closest = min(detected, key=lambda d: (d["id"] not in new_ids, d["dist_m"]))
+        if closest["observed_at"] < bb.get("last_enemy_pos", {}).get("t", -float("inf")):
+            return Status.SUCCESS
         bb["last_enemy_pos"] = {
-            "x": closest["x"], "z": closest["z"],
+            "x": closest["x"], "y": closest.get("y", 0), "z": closest["z"],
+            "target": bot["detected_targets"].get(closest["id"]),
             "id": closest["id"],
             "dist_m": closest["dist_m"],
-            "t": now,
+            "t": closest["observed_at"],
         }
     return Status.SUCCESS
 
@@ -578,7 +625,7 @@ def act_passive_detection(ctx, params):
 @register_action("sonar_ping")
 def act_sonar_ping(ctx, params):
     """Ping sonar actif. Cooldown configurable (défaut 30s).
-    Détecte les ennemis dans sonarDetectMeters + LOS. Met à jour last_enemy_pos.
+    L'acquisition attend le front autoritaire dans Sim.step.
     Révèle le bot aux clients (broadcast). Retourne SUCCESS si ping effectué."""
     bot = ctx["bot"]
     bb = bot.setdefault("bb", {})
@@ -588,35 +635,22 @@ def act_sonar_ping(ctx, params):
     if now < bb.get("next_sonar_ping_at", 0):
         return Status.FAILURE
     bb["next_sonar_ping_at"] = now + cooldown_s
-    detected = deps["bot_sonar_ping"](bot, ctx["world"])
-    if detected:
-        closest = min(detected, key=lambda d: d["dist_m"])
-        bb["last_enemy_pos"] = {
-            "x": closest["x"], "z": closest["z"],
-            "id": closest["id"],
-            "dist_m": closest["dist_m"],
-            "t": now,
-        }
-        # Ajouter à last_detected_ids pour cohérence avec passive_detection.
-        new_ids = {d["id"] for d in detected}
-        prev = bot.get("last_detected_ids") or set()
-        bot["last_detected_ids"] = prev | new_ids
-        logging.info(f"[bt-sonar] {bot['id']} ping → {len(detected)} cible(s), "
-                     f"closest={closest['id']} à {closest['dist_m']:.0f}m")
-    else:
-        logging.info(f"[bt-sonar] {bot['id']} ping → rien détecté")
+    deps["bot_sonar_ping"](bot, ctx["world"])
+    logging.info(f"[bt-sonar] {bot['id']} ping emis, acquisition differee")
     return Status.SUCCESS
 
 
 @register_action("fire_torpedo_at_audible")
 def act_fire_torpedo_at_audible(ctx, params):
     """Tire une torpille sur l'humain audible le plus proche dans 70% de portée
-    max. Cooldown 8 s. Retourne SUCCESS si tir, FAILURE sinon."""
+    max, ou dans l'axe sans contact connu. Cooldown 8 s. SUCCESS si tir."""
     if ctx["deps"]["bots_passive_get"]():
         return Status.FAILURE
     bot = ctx["bot"]
     deps = ctx["deps"]
     torps = (bot.get("boat") or {}).get("torpedoes") or {}
+    if ctx["now"] < bot.get("next_torpedo_at", 0.0):
+        return Status.FAILURE
     spec = torps.get("acoustic") or torps.get("autonomous")
     if not spec:
         return Status.FAILURE
@@ -625,13 +659,8 @@ def act_fire_torpedo_at_audible(ctx, params):
     UNIT_METERS_BOT = deps["UNIT_METERS_BOT"]
     target_player = None
     best_dist = float("inf")
-    detected = bot.get("last_detected_ids") or set()
-    same_team_fn = deps.get("same_team")
-    for sid, p in deps["players"].items():
-        if same_team_fn and same_team_fn(bot, p):
-            continue
-        if p["id"] not in detected:
-            continue
+    targets = list(_known_targets(bot, ctx["now"]))
+    for p in targets:
         pos = p.get("position") or {}
         d_u = ((pos.get("x", 0) - bot["position"]["x"]) ** 2
                + (pos.get("z", 0) - bot["position"]["z"]) ** 2) ** 0.5
@@ -640,11 +669,11 @@ def act_fire_torpedo_at_audible(ctx, params):
         if d_u < best_dist:
             best_dist = d_u
             target_player = p
-    if target_player is None:
+    if targets and target_player is None:
         return Status.FAILURE
     if deps["spawn_bot_torpedo"](bot, target_player):
         bot["next_torpedo_at"] = ctx["now"] + float(params.get("cooldown_s", 8.0))
-        logging.info(f"[bot-fire] {bot['id']} tire torpille sur {target_player['id']}")
+        logging.info(f"[bot-fire] {bot['id']} tire torpille sur {target_player['id'] if target_player else 'cap courant'}")
         return Status.SUCCESS
     return Status.FAILURE
 
@@ -661,13 +690,7 @@ def act_fire_cannon_at_surface_enemy(ctx, params):
     UNIT_METERS_BOT = deps["UNIT_METERS_BOT"]
     target_player = None
     best_dist = float("inf")
-    detected = bot.get("last_detected_ids") or set()
-    same_team_fn = deps.get("same_team")
-    for sid, p in deps["players"].items():
-        if same_team_fn and same_team_fn(bot, p):
-            continue
-        if p["id"] not in detected:
-            continue
+    for p in _known_targets(bot, ctx["now"]):
         pos = p.get("position") or {}
         if pos.get("y", 0) < -0.6:
             continue
@@ -2171,19 +2194,20 @@ def _drive_to_waypoint(bot, ctx, wp, params):
         bot["speed"] = cruise_target
     else:
         bot["speed"] += math.copysign(tstep, cruise_target - bot["speed"])
-    # Avancée physique : pas de répulsion d'île. Le bot peut traverser le
-    # contour : la cible est à 50m du nœud, donc il atteint avant de coincer.
+    # Avancee physique bornee par le segment exact, sans repulsion ni teleportation.
     speed = bot["speed"]
     speed_ratio = min(1.0, abs(speed) / max(0.001, bot["max_speed_us"] * 0.5))
     bot["rotation"] += bot["rudder"] * speed_ratio * (1 if speed >= 0 else -1) * dt
     nx = bot["position"]["x"] - math.cos(bot["rotation"]) * speed * dt
     nz = bot["position"]["z"] + math.sin(bot["rotation"]) * speed * dt
     bb_local = bot.setdefault("bb", {})
-    # Seul garde-fou : bord du monde (sortie interdite).
+    # Bord du monde et iles : aucun franchissement, meme sur un grand pas.
     half_w = world["ground"]["width"] / 2 - 4.0
     half_d = world["ground"]["depth"] / 2 - 4.0
     out_of_bounds = (nx < -half_w or nx > half_w or nz < -half_d or nz > half_d)
-    if not out_of_bounds:
+    if (not out_of_bounds
+            and not geometry.point_on_any_island(nx, nz, world)
+            and geometry.line_of_sight_clear(bx_pos, bz_pos, nx, nz, world)):
         bot["position"]["x"] = nx
         bot["position"]["z"] = nz
         # Détection de non-progression : on compare la distance actuelle au
@@ -2215,8 +2239,8 @@ def _drive_to_waypoint(bot, ctx, wp, params):
                 bb_local["_ref_wp_dist"] = cur_wp_dist
                 bb_local["_ref_wp_t"] = now_t
     else:
-        # Bord du monde : on ne bouge pas, mais on incrémente stuck pour
-        # déclencher le reset (banni la cible et recalcule).
+        # Collision : arret, avec le suivi de blocage existant conserve.
+        bot["speed"] = 0.0
         bb_local["_stuck_ticks"] = bb_local.get("_stuck_ticks", 0) + 2
     if bb_local.get("_stuck_ticks", 0) > 100:
         # Ban temporaire de la cible courante : sinon le bot recalcule la même
@@ -2251,25 +2275,22 @@ def _drive_to_waypoint(bot, ctx, wp, params):
 # ============================================================
 
 def _torpedoes_in_los_5km(bot, deps):
-    """Liste des torpilles ennemies en LOS clear dans un rayon de 5km du bot.
-    Sert à détecter si on est en mode combat (toute torpille qui circule)."""
+    """Activite radar dans 5 km, thermoclines incluses, sans critere CPA."""
     UNIT_METERS_BOT = deps["UNIT_METERS_BOT"]
     torpedoes = deps.get("torpedoes_server") or {}
-    los_fn = deps.get("line_of_sight_clear")
-    bot_id = bot.get("id")
     bx = bot["position"]["x"]
     bz = bot["position"]["z"]
     R_U = 5000.0 / UNIT_METERS_BOT
     R_U2 = R_U * R_U
     out = []
-    for key, t in torpedoes.items():
-        # Inclut MES torpilles aussi (combat actif tant que je tire).
+    for t in torpedoes.values():
+        # Inclut les torpilles propres si elles restent visibles.
         tx = t["x"]
         tz = t["z"]
         d2 = (tx - bx) ** 2 + (tz - bz) ** 2
         if d2 > R_U2:
             continue
-        if los_fn is not None and not los_fn(bx, bz, tx, tz, ctx_world(bot)):
+        if not simulation.torpedo_radar_visible(bot, t, ctx_world(bot)):
             continue
         out.append(t)
     return out
@@ -2282,58 +2303,15 @@ def ctx_world(bot):
 
 @register_condition("combat_active")
 def cond_combat_active(ctx, params):
-    """Vrai si une torpille (à moi ou ennemie) est en LOS clear dans 5km."""
+    """Vrai si une torpille (propre incluse) est visible au radar dans 5 km."""
     bot = ctx["bot"]
     bot["_ctx_world"] = ctx["world"]
-    deps = ctx["deps"]
-    UNIT_METERS_BOT = deps["UNIT_METERS_BOT"]
-    torpedoes = deps.get("torpedoes_server") or {}
-    los_fn = deps.get("line_of_sight_clear")
-    bx = bot["position"]["x"]
-    bz = bot["position"]["z"]
-    R_U2 = (5000.0 / UNIT_METERS_BOT) ** 2
-    for t in torpedoes.values():
-        d2 = (t["x"] - bx) ** 2 + (t["z"] - bz) ** 2
-        if d2 > R_U2:
-            continue
-        if los_fn is None or los_fn(bx, bz, t["x"], t["z"], ctx["world"]):
-            return True
-    return False
+    return bool(_torpedoes_in_los_5km(bot, ctx["deps"]))
 
 
-def _is_torpedo_threat(bot, t, cone_deg=15.0, los_dist_m=5000.0):
-    """Vrai si la torpille `t` menace `bot` :
-    - elle a acquis le bot, OU
-    - son cap pointe vers le bot ±cone_deg ET elle est à moins de los_dist_m."""
-    bot_id = bot.get("id")
-    if t.get("ownerPlayerId") == bot_id:
-        return False
-    if t.get("acquiredBoatId") == bot_id:
-        return True
-    bx = bot["position"]["x"]
-    bz = bot["position"]["z"]
-    tx = t["x"]; tz = t["z"]
-    dx_to_bot = bx - tx
-    dz_to_bot = bz - tz
-    d_to_bot = math.hypot(dx_to_bot, dz_to_bot)
-    if d_to_bot < 1e-3:
-        return True
-    dirX = t.get("dirX", 0)
-    dirZ = t.get("dirZ", 0)
-    if abs(dirX) + abs(dirZ) < 1e-3:
-        return False
-    # Angle entre vecteur torpille et vecteur torpille→bot.
-    cos_a = (dx_to_bot * dirX + dz_to_bot * dirZ) / (d_to_bot * 1.0)
-    cos_a = max(-1.0, min(1.0, cos_a))
-    angle_deg = math.degrees(math.acos(cos_a))
-    return angle_deg <= cone_deg
-
-
-def _bot_threats(bot, deps, cone_deg=15.0):
-    """Liste des torpilles qui menacent le bot (cap dans cone OU acquisition)."""
-    torpedoes = deps.get("torpedoes_server") or {}
-    return [t for t in torpedoes.values()
-            if _is_torpedo_threat(bot, t, cone_deg=cone_deg)]
+def _bot_threats(bot, deps):
+    """Memes menaces radar/CPA que les conditions BT et le RL."""
+    return deps["bot_torpedoes_threat"](bot)
 
 
 def _i_have_torpedo_in_flight(bot, deps):
@@ -2343,14 +2321,13 @@ def _i_have_torpedo_in_flight(bot, deps):
     return any(t.get("ownerPlayerId") == bot_id for t in torpedoes.values())
 
 
-def _find_attacker_player(threat_torpedo, deps):
-    """Retourne le player dict qui a lancé cette torpille."""
+def _find_attacker_player(threat_torpedo, deps, bot, now):
+    """L'identite du tireur ne revele pas sa position actuelle."""
     owner_id = threat_torpedo.get("ownerPlayerId")
     if owner_id is None:
         return None
-    players = deps.get("players") or {}
-    for p in players.values():
-        if p.get("id") == owner_id or p.get("playerId") == owner_id:
+    for p in _known_targets(bot, now, 30.0):
+        if p["id"] == owner_id:
             return p
     return None
 
@@ -2381,8 +2358,7 @@ def _fire_best_torpedo(bot, target_player, deps, dist_m):
 def act_combat_react(ctx, params):
     """Action unique gérant DEFENSE et ATTAQUE selon contexte.
 
-    DEFENSE (déclenché si une torpille ennemie menace le bot, cap ±15° ou
-            acquisition) :
+    DEFENSE (declenche par une menace radar, CPA <= 200 m sur 10 s) :
     - Largue 1 leurre.
     - Si je n'ai PAS de torpille en vol : contre-attaque (1 torpille sur
       l'ennemi qui m'a tiré, devenu visible).
@@ -2404,7 +2380,7 @@ def act_combat_react(ctx, params):
     now = ctx["now"]
     UNIT_METERS_BOT = deps["UNIT_METERS_BOT"]
 
-    threats = _bot_threats(bot, deps, cone_deg=15.0)
+    threats = _bot_threats(bot, deps)
     have_torp = _i_have_torpedo_in_flight(bot, deps)
     combat = bb.setdefault("_combat", {})
     lure_positions = combat.setdefault("lure_positions", [])
@@ -2459,7 +2435,7 @@ def act_combat_react(ctx, params):
                     logging.info(f"[bt-combat] {bot['id']} largue leurre")
             # Contre-attaque si pas tiré dans la session.
             if not have_torp:
-                attacker = _find_attacker_player(threats[0], deps)
+                attacker = _find_attacker_player(threats[0], deps, bot, now)
                 if attacker is not None:
                     bx_b = bot["position"]["x"]
                     bz_b = bot["position"]["z"]
@@ -2502,21 +2478,12 @@ def act_combat_react(ctx, params):
                 and cur_dist_m <= attack_range_m
                 and cur_dist_m >= 500.0)
     if in_range and not have_torp:
-        # Cherche l'ennemi : priorité à la détection live, sinon utilise
-        # l'ID stocké dans last_enemy_pos (position connue récemment).
-        detected = bot.get("last_detected_ids") or set()
-        attacker = None
-        players = deps.get("players") or {}
-        target_id = last_enemy.get("id") if last_enemy else None
-        for p in players.values():
-            if p.get("id") == bot.get("id"):
-                continue
-            pid = p.get("id")
-            if pid in detected or pid == target_id:
-                attacker = p
-                break
+        attacker = next(iter(_known_targets(bot, now, 30.0)), None)
         if attacker is not None and now >= bot.get("next_torpedo_at", 0):
-            fired = _fire_best_torpedo(bot, attacker, deps, cur_dist_m)
+            aim = attacker["position"]
+            aim_dist_m = math.hypot(aim["x"] - bot["position"]["x"],
+                                    aim["z"] - bot["position"]["z"]) * deps["UNIT_METERS_BOT"]
+            fired = _fire_best_torpedo(bot, attacker, deps, aim_dist_m)
             if fired:
                 bot["next_torpedo_at"] = now + 8.0
                 logging.info(f"[bt-combat] {bot['id']} ATTAQUE sur ennemi "
@@ -2653,25 +2620,12 @@ def act_combat_approach(ctx, params):
 
 @register_condition("combat_should_continue")
 def cond_combat_should_continue(ctx, params):
-    """Vrai si on doit rester en mode combat :
-    - une torpille (à moi ou ennemie) circule en LOS dans 5km, OU
-    - j'ai tiré récemment et j'attends de voir l'effet (≤10s)."""
+    """Reste en combat tant qu'une torpille est visible au radar dans 5 km."""
     bot = ctx["bot"]
     bb = bot.setdefault("bb", {})
     bot["_ctx_world"] = ctx["world"]
-    deps = ctx["deps"]
-    UNIT_METERS_BOT = deps["UNIT_METERS_BOT"]
-    torpedoes = deps.get("torpedoes_server") or {}
-    los_fn = deps.get("line_of_sight_clear")
-    bx = bot["position"]["x"]
-    bz = bot["position"]["z"]
-    R_U2 = (5000.0 / UNIT_METERS_BOT) ** 2
-    for t in torpedoes.values():
-        d2 = (t["x"] - bx) ** 2 + (t["z"] - bz) ** 2
-        if d2 > R_U2:
-            continue
-        if los_fn is None or los_fn(bx, bz, t["x"], t["z"], ctx["world"]):
-            return True
+    if _torpedoes_in_los_5km(bot, ctx["deps"]):
+        return True
     # Reset combat state si plus de torpille.
     bb.pop("_combat", None)
     return False
@@ -2970,12 +2924,7 @@ def act_engage_destroyer_runaway(ctx, params):
     best_dist = float("inf")
     bx = bot["position"]["x"]
     bz = bot["position"]["z"]
-    same_team_fn = deps.get("same_team")
-    for sid, p in deps["players"].items():
-        if same_team_fn and same_team_fn(bot, p):
-            continue
-        if p["id"] not in detected:
-            continue
+    for p in _known_targets(bot, now):
         if p.get("boatType") != "destroyer":
             continue
         if p.get("sunk") or p.get("integrity", 100) <= 0:
@@ -3006,8 +2955,9 @@ def act_engage_destroyer_runaway(ctx, params):
     # Mémorise la position ennemie pour que RETREAT puisse choisir le couvert.
     bb = bot.setdefault("bb", {})
     bb["last_enemy_pos"] = {
-        "x": target_pos["x"], "z": target_pos["z"],
-        "id": target["id"], "dist_m": dist_m, "t": now,
+        "x": target_pos["x"], "y": target_pos["y"], "z": target_pos["z"],
+        "id": target["id"], "dist_m": dist_m, "t": target["observed_at"],
+        "target": target,
     }
     # Force le passage en RETREAT (cherche couvert derrière une île, full speed via JSON).
     if bb.get("state") != "RETREAT":
@@ -3129,12 +3079,9 @@ def act_attack_torpedo_at_known(ctx, params):
         logging.info(f"[bt-fsm] {bot['id']} ATTACK → {next_state} ({reason})")
         return Status.SUCCESS
 
-    # Perte de contact → transition.
-    if not bot.get("last_detected_ids"):
-        last = bb.get("last_enemy_pos")
-        clear_after_s = float(params.get("clear_after_s", 30.0))
-        if last and (now - last.get("t", 0)) < clear_after_s and bt_has("APPROACH"):
-            return _end_attack("APPROACH", "plus audible")
+    # Un point memorise reste une solution de tir jusqu'a expiration.
+    targets = list(_known_targets(bot, now, float(params.get("clear_after_s", 30.0))))
+    if not targets:
         return _end_attack("SEARCH", "plus de cible")
 
     # Max total atteint → RETREAT.
@@ -3146,15 +3093,9 @@ def act_attack_torpedo_at_known(ctx, params):
     # Trouver la cible la plus proche.
     target_player = None
     best_dist = float("inf")
-    detected = bot.get("last_detected_ids") or set()
     bx = bot["position"]["x"]
     bz = bot["position"]["z"]
-    same_team_fn = deps.get("same_team")
-    for sid, p in deps["players"].items():
-        if same_team_fn and same_team_fn(bot, p):
-            continue
-        if p["id"] not in detected:
-            continue
+    for p in targets:
         pos = p.get("position") or {}
         d_u = math.hypot(pos.get("x", 0) - bx, pos.get("z", 0) - bz)
         if d_u < best_dist:
@@ -3309,16 +3250,16 @@ def act_retreat_to_cover(ctx, params):
     now = ctx["now"]
 
     # Figer la position ennemi de référence au moment de l'entrée en RETREAT.
-    # Priorité : position live de l'ennemi détecté (plus fiable que last_enemy_pos
-    # qui peut dater de l'approche initiale).
+    # Priorite au snapshot detecte, jamais a la position live cachee.
     if "retreat_enemy_ref" not in bb:
         enemy_pos = None
         detected_ids = bot.get("last_detected_ids") or set()
         same_team_fn = deps.get("same_team")
         if detected_ids:
-            players_dict = deps.get("players") or {}
-            for sid, p in players_dict.items():
+            for p in _known_targets(bot, now):
                 if p.get("id") in detected_ids and not (same_team_fn and same_team_fn(bot, p)):
+                    if not deps["bot_target_los"](bot, p["position"]):
+                        continue
                     pos = p.get("position") or {}
                     enemy_pos = {"x": pos.get("x", 0), "z": pos.get("z", 0)}
                     break
@@ -3455,6 +3396,8 @@ def act_fire_aa_at_human_drone(ctx, params):
         if same_team_fn and same_team_fn(bot, owner):
             continue
         if now < per_drone_cd.get(key, 0):
+            continue
+        if not deps["bot_target_los"](bot, drone):
             continue
         if deps["bot_fire_aa"](bot, drone):
             bot["next_aa_at"] = now + float(params.get("cooldown_s", 0.4))

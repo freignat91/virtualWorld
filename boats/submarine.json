@@ -1,12 +1,14 @@
 {
   "model": "models/navire/scene.glb",
   "speed": 25,
+  "integrity": 100,
   "scale": 5,
   "noise": 100,
   "minNoise": 6,
   "speedNoiseLimit": 0.8,
   "flotation": 2,
   "acousticLures": {
+    "integrity": 10,
     "number": 10,
     "time": 2,
     "noise": 800

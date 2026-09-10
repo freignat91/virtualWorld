@@ -65,21 +65,22 @@ class FairnessDiagnosticsTest(unittest.TestCase):
             ("destroyer", DESTROYER_V1_OBSERVATION_VERSION, 21),
             ("destroyer", DESTROYER_OBSERVATION_VERSION, 25),
         ):
-            for barrier in ("island", "thermocline", "range", "ceil_island"):
+            for barrier in ("island", "thermocline", "range", "ceil_island", "thin_island"):
                 with self.subTest(version=version, barrier=barrier):
                     observer, hidden = self._spawn_torpedo_scene(boat_type, version)
                     self.assertEqual(1.0, build_observation(observer, runner.sim, runner.world)[start])
                     if barrier == "island":
                         runner.world["islands"] = [{"points": polygon}]
-                    elif barrier == "ceil_island":
-                        # Distance 19.6 : floor=3 manque x=104.9, ceil=4 le voit.
+                    elif barrier in ("ceil_island", "thin_island"):
+                        # Ancien ecart floor/ceil et ile manquee par les deux grilles.
+                        left = 104.8 if barrier == "ceil_island" else 101.01
+                        right = 105.0 if barrier == "ceil_island" else left + 0.01
                         runner.world["islands"] = [{"points": [
                             {"x": x, "z": z} for x, z in (
-                                (104.8, 99.0), (105.0, 99.0),
-                                (105.0, 101.0), (104.8, 101.0))]}]
-                        self.assertTrue(geometry.line_of_sight_clear(
+                                (left, 99.0), (right, 99.0),
+                                (right, 101.0), (left, 101.0))]}]
+                        self.assertFalse(geometry.line_of_sight_clear(
                             100.0, 100.0, hidden["x"], hidden["z"], runner.world))
-                        self.assertTrue(geometry.point_on_any_island(104.9, 100.0, runner.world))
                     elif barrier == "thermocline":
                         runner.world["thermoclines"] = [{"depthMeters": 40.0, "points": polygon}]
                         hidden["y"] = -8.0 - observer["position"]["y"]
@@ -92,9 +93,10 @@ class FairnessDiagnosticsTest(unittest.TestCase):
                     np.testing.assert_array_equal(np.zeros(7), baseline[start:start + 7])
                     for with_visible in (False, True):
                         if with_visible:
+                            # Menace entrante : le tube suit maintenant le cap du tireur.
                             shooter_sid = runner.spawn_bot(
                                 external_control=True, position=(100.0, 140.0),
-                                rotation=0.0, team_id="enemy")
+                                rotation=-math.pi / 2, team_id="enemy")
                             self.assertTrue(runner.sim.spawn_bot_torpedo(
                                 runner.legacy.bots[shooter_sid],
                                 runner.legacy.players[observer["sid"]]))
@@ -118,6 +120,22 @@ class FairnessDiagnosticsTest(unittest.TestCase):
                             np.testing.assert_array_equal(
                                 baseline, build_observation(observer, runner.sim, runner.world))
                             del runner.sim.torpedoes[hidden_key]
+
+    def test_torpedo_tick_cannot_cross_thin_island_before_activation(self) -> None:
+        for blocked in (False, True):
+            with self.subTest(blocked=blocked):
+                _, torpedo = self._spawn_torpedo_scene("submarine", SUBMARINE_OBSERVATION_VERSION)
+                torpedo.update(x=100.0, z=100.0, dirX=1.0, dirZ=0.0, pitch=0.0,
+                               speed=2.0, activation=1000.0, traveled=0.0, initialTarget=None)
+                self.runner.world["islands"] = [{"points": [
+                    {"x": x, "z": z} for x, z in (
+                        (100.05, 99.0), (100.06, 99.0),
+                        (100.06, 101.0), (100.05, 101.0))]}] if blocked else []
+                self.runner.sim.update_server_torpedoes(0.05, self.runner.world)
+                key = (torpedo["ownerPlayerId"], torpedo["tid"])
+                self.assertEqual(not blocked, key in self.runner.sim.torpedoes)
+                if not blocked:
+                    self.assertAlmostEqual(100.1, torpedo["x"])
 
     def test_torpedo_lock_and_kind_are_neutral_with_duplicate_tids(self) -> None:
         """Verrous propres/etrangers et types ne changent aucun slot d'observation."""
@@ -149,8 +167,8 @@ class FairnessDiagnosticsTest(unittest.TestCase):
                     selected, other = torpedoes
                     self.assertEqual(selected["tid"], other["tid"])
                     self.assertNotEqual(selected["ownerPlayerId"], other["ownerPlayerId"])
-                    # CPA proche mais cap sortant : ETA nulle sans verrou, avant
-                    # l'autre torpille dans le tri stable de Sim (egalement ETA 0).
+                    # CPA proche mais cap sortant : conserver ETA 0, apres
+                    # l'arrivante seulement si celle-ci est visible.
                     selected["dirX"] = 1.0
                     selected["dirZ"] = 0.0
                     selected["y"] = bot["position"]["y"]
@@ -179,9 +197,13 @@ class FairnessDiagnosticsTest(unittest.TestCase):
                     self.assertEqual(0.0, baseline[start + 5])
                     other["acquiredBoatId"] = bot["id"]
                     threats = runner.sim.bot_torpedoes_threat(bot)
-                    self.assertEqual(2, len(threats))
-                    self.assertEqual(selected["ownerPlayerId"], threats[0]["ownerId"])
-                    self.assertEqual([0.0, 0.0], [t["eta_s"] for t in threats])
+                    self.assertEqual(2 if barrier is None else 1, len(threats))
+                    expected = other if barrier is None else selected
+                    self.assertEqual(expected["ownerPlayerId"], threats[0]["ownerId"])
+                    self.assertTrue(all(t["kind"] is None for t in threats))
+                    if barrier is None:
+                        self.assertGreater(threats[0]["eta_s"], 0.0)
+                    self.assertEqual(0.0, threats[-1]["eta_s"])
                     np.testing.assert_array_equal(
                         baseline, build_observation(bot, runner.sim, runner.world))
                     selected["acquiredBoatId"] = bot["id"]
@@ -304,14 +326,13 @@ class FairnessDiagnosticsTest(unittest.TestCase):
                     self.assertEqual("cannon" if accepted else None, result["weapon_kind"])
                     self.assertEqual(ammo_before - int(accepted),
                                      runner.legacy.cannon_ammo[sid]["cannon"])
-                    self.assertEqual(int(accepted), len(runner.sim._pending_cannon_hits))
+                    self.assertEqual(int(accepted), len(runner.sim.cannon_shells))
                     if accepted:
-                        self.assertEqual(target["id"],
-                                         runner.sim._pending_cannon_hits[0]["target_id"])
+                        self.assertEqual(target_y, runner.sim.cannon_shells[0]["end_y"])
                     else:
                         self.assertEqual(cooldown_before, bot["next_cannon_at"])
                     runner.step(0.25)
-                    self.assertEqual([], runner.sim._pending_cannon_hits)
+                    self.assertEqual([], runner.sim.cannon_shells)
                     if accepted:
                         self.assertLess(target["integrity"], integrity_before)
                     else:

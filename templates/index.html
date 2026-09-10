@@ -2,6 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Virtual World</title>
     <style>
         * { margin: 0; padding: 0; }
@@ -309,12 +310,28 @@
             background: #001a00;
             z-index: 10;
         }
+        #boatSelect { overflow-y: auto; }
+        #boatSelect > div { max-height:100%;overflow-y:auto;box-sizing:border-box; }
+        #spectatorPanel { position:absolute;top:10px;right:10px;max-width:320px;padding:12px;background:rgba(0,0,0,0.8);color:#cce8ff;font:13px/1.5 monospace;z-index:50; }
+        #spectatorPanel button, #spectatorPanel a { display:inline-block;margin:6px 4px 6px 0;padding:8px;background:#1a3340;color:#88ddff;border:1px solid #2a5a8a;border-radius:4px;font:inherit;cursor:pointer; }
+        .spectator #botsPopup, .spectator #periscopeBtn,
+        .spectator #surfaceBtn, .spectator #targetDepthInput, .spectator #weaponsToggle,
+        .spectator #weaponsPopup, .spectator #adminMenu { display:none !important; }
+        @media (max-width:600px) {
+            #boatSelect { align-items:flex-start !important; }
+            #boatSelect > div { box-sizing:border-box;width:100%; }
+            #boatSelect input { min-width:0;max-width:45%; }
+            #spectatorPanel { left:10px;max-width:none;font-size:11px; }
+            .spectator #radar { width:calc(100vw - 24px) !important;height:auto !important;top:auto !important;bottom:10px; }
+        }
     </style>
 </head>
 <body>
     <div id="boatSelect" style="position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.85);z-index:100;">
         <div style="text-align:center;color:white;font-family:monospace;max-width:560px;padding:20px;">
             <h2 style="margin-bottom:16px;">Bateau et équipe</h2>
+            <button id="spectateBtn" type="button" style="padding:12px 26px;margin-bottom:8px;font:15px monospace;cursor:pointer;background:#1a3340;color:#88ddff;border:1px solid #2a5a8a;border-radius:5px;">Observer la partie</button>
+            <p style="margin-bottom:18px;font-size:12px;color:#aac;">Vue complète, sans bateau ni équipe. Lecture seule.</p>
 
             <h3 style="margin-bottom:10px;font-size:15px;color:#cce8ff;">1. Choisissez votre navire amiral</h3>
             <div>
@@ -369,6 +386,15 @@
         <div id="textureSelected" style="margin-top:8px;color:#9f9;font-size:12px;"></div>
     </div>
     <canvas id="renderCanvas"></canvas>
+    <section id="spectatorPanel" hidden aria-label="Mode spectateur">
+        <strong>Mode spectateur · lecture seule</strong>
+        <div id="spectatorStatus" role="status">Aucun bateau disponible</div>
+        <div>Changer unité / Tab : bateau suivant ; Shift-Tab : précédent, toutes équipes.</div>
+        <div>Glisser : regarder · molette : zoom · bouton Zoom : vue embarquée.</div>
+        <div>Radar : capteurs du bateau observé, pas de vision complète par défaut. Clic sur un contact visible : suivre. Molette : zoom ; glisser : déplacer la carte. Taper <code>allmap</code> : carte complète de diagnostic (bascule locale).</div>
+        <button id="spectatorNextBtn" type="button">Changer d'unité</button>
+        <a href="/">Quitter l'observation</a>
+    </section>
     <div id="damageOverlay" style="display:none;position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:5;box-shadow:inset 0 0 120px 40px rgba(255,0,0,0.7);"></div>
     <canvas id="radar" title="Clic = sélection cible / clic-glisser = pan / molette = zoom / Shift+clic-glisser = déplacer le bloc UI"></canvas>
     <button id="botsBtn" title="Ajouter une unité (sous-marin ou destroyer, manuelle, BT ou IA) à votre équipe ou à l'équipe Bots adverse">Unités</button>
@@ -489,6 +515,6 @@
     <script src="/static/earcut.min.js"></script>
     <script src="/static/babylon.glTFFileLoader.js"></script>
     <script src="/static/socket.io.min.js"></script>
-    <script src="/static/game.js?v=949"></script>
+    <script src="/static/game.js?v=950"></script>
 </body>
 </html>

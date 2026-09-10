@@ -1,5 +1,10 @@
 # Reevaluation sous regles corrigees
 
+STEP4 termine le 2026-09-10 sous les regles STEP1/2/3 et HP 200/100/10 :
+1200 matchs frais, v3 67,00 %, v4 300k 75,50 %, v4 2M 66,50 %.
+Voir la nouvelle section finale ; les evaluations ci-dessous restent historiques,
+non fusionnees avec ce nouveau regime. Aucune promotion.
+
 Confirmation 94000 terminee le 2026-09-09 : 400 nouveaux matchs valides,
 v3 55,25 %, v4 300k 58,00 %. Gain frais +2,75 points, IC 95 % groupe par
 graine [-3,073 ; 8,573]. Pas de promotion ; detail et cumul en fin de document.
@@ -309,3 +314,188 @@ toujours non etablie. Pour le test local que le parent prepare : comparer v3 et
 v4 par leurs noms runtime ci-dessus, sans remplacer le champion ; observer
 passivite/nuls, tirs invalides, sonar et absence d'omniscience. Aucun serveur lance
 par ce benchmark ; demarrage et inspection restent au parent/utilisateur.
+
+## STEP4 Termine : Regles STEP1/2/3 (2026-09-10)
+
+Autorisation explicite de reevaluation uniquement. Six jobs lances le
+2026-09-09 vers 23:53 +02:00, termines le 2026-09-10 vers 00:03 +02:00,
+tous exit 0, stderr vide, aucun timeout ni processus d'evaluation restant.
+Exactement 100 episodes dans chacune des 12 strates, graines consecutives
+96000-96099 et 97000-97099 : 1200 matchs, 400 par candidat, 200 graines
+distinctes reutilisees entre candidats et adversaires.
+
+### Nouveau protocole et perimetre
+
+- Trois ZIP : champion destroyer v3, v4 best selectionne a 300k, checkpoint v4 2M.
+- Carte `testCombats`, adversaires `submarine/autosub` et unique ZIP sous-marin
+  v15 `best`, poids fixes 50/50 ; aucune politique adverse tiree d'un autre pool.
+- `--report --config rl/configs/aidest_v4.json --episodes 100 --device cpu` ;
+  `OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1`, NLWP observe = 1.
+- Reward v4 exacte inchangee, controle `destroyer_duel_v2`, frame_skip 5,
+  dt 0,05 s, 6000 ticks maximum, spawn final 600-2000 m, curriculum/self-play nuls.
+- Regles actuelles : sonar BT differe STEP1, canon partage sur trajectoire STEP2,
+  torpilles sans contact STEP3, HP destroyer/sous-marin/leurre = 200/100/10,
+  plus corrections precedentes de LOS, menaces, mouvement et guidage.
+- Fin d'evaluation **au premier bateau mort**, ou 300 s ; aucun changement de
+  terminaison. L'autogame local attend les torpilles des proprietaires coules et
+  a un plafond de 600 s : ces scores ne mesurent PAS cette condition de victoire.
+- Sous-marin v15 gele en poids, pas en comportement : observations, torpilles et
+  environnement courants l'affectent aussi. Aucun score ancien ajoute au cumul.
+
+### Resultats frais
+
+W/L/D = victoires/defaites/nuls ; 200 matchs par cellule adversaire.
+Score = victoire + 0,5 nul. Ecarts en points de pourcentage contre v3.
+
+| Modele | Autosub W/L/D | Score | V15 W/L/D | Score | Score 50/50 | Ecart v3, IC 95 % groupe par graine |
+|---|---|---|---|---|---|---|
+| v3 champion | 70/0/130 | 67,50 % | 96/30/74 | 66,50 % | 67,00 % | reference |
+| v4 300k | 111/0/89 | 77,75 % | 114/21/65 | 73,25 % | 75,50 % | +8,50 [4,727 ; 12,273] |
+| v4 2M | 68/5/127 | 65,75 % | 97/28/75 | 67,25 % | 66,50 % | -0,50 [-4,481 ; 3,481] |
+
+Ecarts par adversaire : v4 300k/autosub +10,25 [5,840 ; 14,660],
+v4 300k/v15 +6,75 [0,912 ; 12,588] ; v4 2M/autosub -1,75
+[-6,435 ; 2,935], v4 2M/v15 +0,75 [-4,885 ; 6,385].
+
+| Modele | Adversaire | Serie | W/L/D | Score % | Ecart v3, IC 95 % |
+|---|---|---|---|---|---|
+| v3 | autosub | 96000 | 31/0/69 | 65,5 | reference |
+| v3 | autosub | 97000 | 39/0/61 | 69,5 | reference |
+| v3 | v15 | 96000 | 50/14/36 | 68,0 | reference |
+| v3 | v15 | 97000 | 46/16/38 | 65,0 | reference |
+| v4 300k | autosub | 96000 | 56/0/44 | 78,0 | +12,50 [5,483 ; 19,517] |
+| v4 300k | autosub | 97000 | 55/0/45 | 77,5 | +8,00 [2,656 ; 13,344] |
+| v4 300k | v15 | 96000 | 56/13/31 | 71,5 | +3,50 [-5,115 ; 12,115] |
+| v4 300k | v15 | 97000 | 58/8/34 | 75,0 | +10,00 [2,121 ; 17,879] |
+| v4 2M | autosub | 96000 | 34/3/63 | 65,5 | 0,00 [-6,824 ; 6,824] |
+| v4 2M | autosub | 97000 | 34/2/64 | 66,0 | -3,50 [-9,922 ; 2,922] |
+| v4 2M | v15 | 96000 | 56/17/27 | 69,5 | +1,50 [-6,435 ; 9,435] |
+| v4 2M | v15 | 97000 | 41/11/48 | 65,0 | 0,00 [-8,002 ; 8,002] |
+
+L'analyseur reutilisable conserve maintenant la covariance entre adversaires :
+pour chaque serie h et graine i, z_hi = (d_autosub_hi + d_v15_hi)/2 ;
+delta = moyenne_h(moyenne_i z_hi), SE = sqrt(sum_h(var(z_h)/100))/2,
+IC normal = delta +/- 1,96 SE. Chaque comparaison a 400 paires de matchs
+mais **200 groupes de graines**, pas 400 paires independantes. Les IC par
+adversaire gardent les deux series disjointes a poids egaux. Les diagnostics
+sous independance des strates sont archives, non retenus pour les conclusions
+agregees : v4 300k [4,842 ; 12,158], v4 2M [-4,164 ; 3,164].
+
+Hypotheses restantes : echantillonnage representatif, independance entre graines
+et series, approximation normale ; IC marginaux sans correction de multiplicite.
+Les graines apparient les conditions, pas tous les tirages apres divergence des
+actions. Selection historique du checkpoint connue ; pas de nouveau gate post hoc.
+V4 300k progresse dans les deux series (+8 et +9 points agreges), passe les
+seuils ponctuels existants (+3 agreges, aucune regression adverse >5), sans
+etablir une robustesse globale ni autoriser une promotion. V4 2M ne demontre
+ni gain ni equivalence a v3 ; ne pas recycler la conclusion historique de regression.
+
+### Munitions et comportement
+
+Moyennes **par episode de l'agent** ; toutes les colonnes sont des comptes
+de succes/rejets reels, pas des intentions supposees ni des taux de degats.
+
+| Modele/adversaire | Torp. acoust. | Torp. auton. | Grenades | Armes invalides | Leurres | Contacts | Duree sim. s |
+|---|---|---|---|---|---|---|---|
+| v3/autosub | 0,015 | 0,155 | 1,170 | 28,875 | 4,825 | 0,470 | 224,217 |
+| v3/v15 | 0,000 | 0,515 | 4,905 | 55,615 | 8,835 | 5,950 | 156,834 |
+| v4 300k/autosub | 8,780 | 0,825 | 2,045 | 165,465 | 13,740 | 0,695 | 194,282 |
+| v4 300k/v15 | 9,655 | 1,365 | 3,850 | 128,535 | 14,980 | 3,510 | 155,377 |
+| v4 2M/autosub | 0,755 | 0,200 | 1,280 | 20,615 | 4,580 | 0,760 | 239,490 |
+| v4 2M/v15 | 2,895 | 0,205 | 4,535 | 40,345 | 10,095 | 4,180 | 168,968 |
+
+Agregat 50/50 : v3/v4 300k/v4 2M tirent respectivement 0,3425/10,3125/2,0275
+torpilles et 3,380/13,260/4,935 armes par episode ; demandes invalides
+42,245/147,000/30,480 (0,222/0,841/0,149 par seconde simulee).
+V4 300k utilise environ 30 fois plus de torpilles que v3 et fait 3,48 fois plus
+de demandes invalides, malgre des parties plus courtes (174,829 contre 190,525 s).
+Ce signal ne vient donc pas simplement d'une duree d'exposition plus longue.
+La fraction de demandes d'armes rejetees vaut 92,59/91,73/86,07 % : une fraction
+legerement moindre pour v4 300k ne signifie pas moins de spam en volume.
+
+Sur 400 episodes/modele, epuisement des 20 torpilles acoustiques : 0/23/0 ;
+des 16 autonomes : 0/0/0 ; des 20 leurres : 22/122/32.
+Episodes sans aucun tir de torpille : 328/6/162. Aucun tir de canon reussi dans
+les 1200 matchs ; les compteurs ne distinguent pas un canon demande puis rejete.
+Mines/episode : 0,025/0,030/0,055, aucune demande de mine invalide.
+Sonars/episode : 6,5725/6,0800/7,0175, aucune demande sonar invalide.
+Les nuls restent importants : 204/154/202, dont 203/154/202 timeouts et
+un double naufrage simultane pour v3. Les contacts comptent des transitions
+vers une detection, pas du temps de contact ni des ennemis distincts.
+
+**Limites d'instrumentation :** pas d'etiquette tir aveugle/avec contact, pas
+de raison de rejet, pas de consommation adverse, pas de hits ni de degats en
+points attribues aux armes. Les HP terminaux sont archives mais ne remplacent
+pas ces compteurs ; le reward ne permet pas de reconstruire les degats.
+La consommation elevee de v4 300k est mesuree sous STEP3, mais ni son gaspillage
+exact ni un effet causal propre aux tirs sans cible ne sont identifies ici.
+Ne pas comparer ces volumes a une ancienne baseline sous d'autres regles.
+
+### Tracabilite et ressources
+
+Nouvelle archive locale ignoree, sans ecrasement :
+`rl/models_rl/aidest_v4_scripted/evaluation/rules_steps123/`.
+Elle contient manifests de lancement/completion, commandes exactes, stdout/stderr,
+six rapports JSON, `analysis.json`, `metrics.json`, scripts de lancement/resume,
+dependances/CPU, statut Git, diffs initial/index, 125 hashes et archive source
+incluant sources non suivies, client, tests, cartes, specs et arbres BT.
+Les 125 empreintes ont toutes ete recontrolees identiques apres les six jobs,
+avant les ajouts documentaires de completion. Aucun verrou filesystem.
+
+HEAD `a237504f9cb362588848d5dcb77a31e6a9e501a6` ne suffit pas a identifier
+le code sale execute. SHA-256 :
+
+| Artefact | SHA-256 |
+|---|---|
+| v3 champion | `103481713271ed04cf03007f1468898e6b4c928214c12f28ecd90fabfc5066c2` |
+| v4 best 300k | `90c08a62b551f77f23a90194bb7876841df7cf7a9c50987141c3257aa16ca8e2` |
+| v4 checkpoint 2M | `473f08d02b34ac5f6e9eacbfe04b65500cbf3cd743a0fc98331b326312655a77` |
+| sous-marin v15 best | `2849f0c79a15fced51a249720bd25bd4210ee1bafc4c71f79aa942dfaab421c5` |
+| config aidest_v4 | `38e16186ca860bc589209ac9051ef212b50b0c284b82d29a1570ec907a7c7fdc` |
+| source_inputs.tar.gz | `d37c4496750ff4a427de2a087cf79930ca84236ea8c67703bf6558d487f1d1e9` |
+| initial.diff | `fd0c27642dd1748b2feaf56bc652a71411ef9195ffec61e8ea872e1dea9e1eb0` |
+
+| Job | Duree murale s | CPU utilisateur s | CPU systeme s | Pic RSS KiB | Exit |
+|---|---|---|---|---|---|
+| v3/96000 | 472,429 | 472,125 | 0,236 | 829820 | 0 |
+| v3/97000 | 466,483 | 466,218 | 0,245 | 826120 | 0 |
+| v4 300k/96000 | 597,544 | 597,283 | 0,238 | 826244 | 0 |
+| v4 300k/97000 | 575,707 | 575,437 | 0,216 | 831216 | 0 |
+| v4 2M/96000 | 482,320 | 482,062 | 0,232 | 830928 | 0 |
+| v4 2M/97000 | 522,995 | 522,688 | 0,264 | 831488 | 0 |
+
+Ressources via `getrusage(RUSAGE_CHILDREN)` du processus d'evaluation ; environ
+10 minutes murales en parallele, sans epinglage CPU. Timeout interne 3500 s,
+outil 3600 s ; pas de coupe arbitraire a 600 s. Ce n'est pas une mesure de
+latence de production, ni une comparaison de cout `predict` isole.
+
+Validation : 247 tests Python passes (dont les 5 tests de l'analyseur), compilation
+des scripts et `git diff --check` passes. Tests analytiques couvrant covariance
+positive/negative, poids fixes et rejet de series chevauchantes/non appariees.
+Le test pipeline utilise son modele temporaire habituel, jamais les ZIP evalues.
+Aucun gameplay/reward/config/observation/action/modele modifie ; seuls analyseur,
+tests, documentation et artefacts ont ete ajoutes/modifies pour STEP4.
+Aucun entrainement long, promotion, deploiement, serveur live ou commit.
+
+### Prochaine experience avant tout run RL long
+
+**Priorite : diagnostic instrumente apparie, pas davantage de PPO.** Proposer,
+sur nouvelle autorisation, v3 et v4 300k seulement, 20 graines nouvelles
+98000-98019 par adversaire, soit 80 trajectoires, CPU mono-thread et memes
+conditions initiales. Enregistrer tirs avec/sans contact legal, raisons des
+rejets, ammo restante, impacts/degats et torpilles encore actives au premier mort.
+Avant execution, choisir explicitement le contrat de fin a mesurer ; si une
+continuation de settling est autorisee, conserver les deux classifications sur
+chaque meme trajectoire, sans modifier retroactivement les rapports STEP4.
+
+Hypotheses : le surplus de torpilles/leurres est-il tactiquement utile ou depense
+aveugle, et la coupure au premier mort masque-t-elle des kills posthumes capables
+de changer le classement ? Budget propose : 80 trajectoires, plafond simule
+600 s seulement si settling autorise, un plafond mural d'une heure, zero update
+de poids. Critere diagnostique : rapport apparie complet, compteurs reconcilies
+aux munitions, revue humaine des rejets/epuisements et changements d'issue ;
+80 matchs ne sont pas un nouveau gate de promotion. Suspendre le plan long en
+cas de source modifiee, mismatch inexplique ou sensibilite de classement au
+contrat de fin ; conserver champions/configs, aucun ajustement opportuniste des
+rewards. Restent aussi validation live humaine/navigateur/reseau et charge CPU
+de production, qui ne sont pas remplacees par cette robustesse de suite.

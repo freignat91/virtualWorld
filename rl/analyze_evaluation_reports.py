@@ -88,13 +88,14 @@ def analyze(reports: list[dict[str, Any]], baseline: str, episodes: int) -> dict
     if len(config_hashes) != 1 or baseline not in groups:
         raise ValueError("configurations incompatibles ou reference absente")
     reference = groups[baseline]
-    output = {"method": "equal fixed stratum weights; paired analytical SE; normal 95% CI",
+    output = {"method": "equal fixed series/opponent weights; paired seed-clustered SE across opponents; normal 95% CI",
               "baseline_sha256": baseline, "models": []}
     for model, group in groups.items():
         if group.keys() != reference.keys():
             raise ValueError("strates non appariees")
         rows = []
         differences = []
+        clusters: dict[int, dict[tuple, list[float]]] = {}
         by_opponent: dict[str, list] = {}
         for key in sorted(group):
             result, ref = group[key], reference[key]
@@ -103,18 +104,45 @@ def analyze(reports: list[dict[str, Any]], baseline: str, episodes: int) -> dict
             values = [SCORES[row["outcome"]] - SCORES[base["outcome"]]
                       for row, base in zip(result["episode_results"], ref["episode_results"], strict=True)]
             differences.append(values)
+            clusters.setdefault(key[2], {})[key[:2]] = values
             opponent = result["episode_results"][0]["opponent"]
             by_opponent.setdefault(opponent, []).append(values)
             rows.append({"opponent": opponent, "seed": key[2], "episodes": episodes,
                          "wins": result["wins"], "losses": result["losses"], "draws": result["draws"],
                          "score_pct": 100 * (result["wins"] + 0.5 * result["draws"]) / episodes,
                          "relative_to_baseline": paired_difference([values])})
+        clustered = seed_clustered_difference(clusters)
         output["models"].append({"path": paths[model], "sha256": model, "strata": rows,
                                  "score_pct": mean(row["score_pct"] for row in rows),
-                                 "relative_to_baseline": paired_difference(differences),
+                                 "relative_to_baseline": clustered,
+                                 "independent_strata_diagnostic": paired_difference(differences),
                                  "opponent_differences": {key: paired_difference(values)
                                                           for key, values in by_opponent.items()}})
     return output
+
+
+def seed_clustered_difference(series: dict[int, dict[tuple, list[float]]]) -> dict[str, Any]:
+    """Conserve la covariance entre adversaires partageant une meme graine."""
+    if not series:
+        raise ValueError("series absentes")
+    opponents = next(iter(series.values())).keys()
+    seen = set()
+    strata = []
+    for start, group in sorted(series.items()):
+        if not opponents or group.keys() != opponents:
+            raise ValueError("adversaires non apparies entre series")
+        sizes = {len(values) for values in group.values()}
+        if len(sizes) != 1 or min(sizes) < 2:
+            raise ValueError("graines non appariees")
+        seeds = set(range(start, start + next(iter(sizes))))
+        if seeds & seen:
+            raise ValueError("series de graines chevauchantes")
+        seen.update(seeds)
+        strata.append([mean(values) for values in zip(*group.values(), strict=True)])
+    result = paired_difference(strata)
+    result["seed_clusters"] = result.pop("pairs")
+    result["match_pairs"] = result["seed_clusters"] * len(opponents)
+    return result
 
 
 def main() -> None:

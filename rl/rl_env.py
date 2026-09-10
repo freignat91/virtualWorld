@@ -139,8 +139,8 @@ class SubmarineDuelEnv(gym.Env):
         self._episode_index = 0
         self._physics_steps = 0
         self._total_decisions = 0
-        self._previous_agent_hp = 100.0
-        self._previous_opponent_hp = 100.0
+        self._previous_agent_hp = 0.0
+        self._previous_opponent_hp = 0.0
         self._had_contact = False
         self._stats: Dict[str, int] = {}
         self._opponent_info: Dict[str, Any] = {}
@@ -277,8 +277,8 @@ class SubmarineDuelEnv(gym.Env):
         self._agent()["rl_control_version"] = self.control_version
         if self._opponent_control_version is not None:
             self._opponent()["rl_control_version"] = self._opponent_control_version
-        self._previous_agent_hp = 100.0
-        self._previous_opponent_hp = 100.0
+        self._previous_agent_hp = float(self.runner.legacy.bots[self.agent_sid]["integrity"])
+        self._previous_opponent_hp = float(self.runner.legacy.bots[self.opponent_sid]["integrity"])
         observation = build_observation(self._agent(), self.runner.sim, self.runner.world)
         self._had_contact = bool(observation[
             contact_detected_index(self.agent_boat_type, self.control_version)] > 0.5)

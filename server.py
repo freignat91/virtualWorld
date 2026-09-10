@@ -11,6 +11,7 @@ import time
 import uuid
 import random
 import logging
+from functools import wraps
 from logging.handlers import RotatingFileHandler
 
 # Logs rotatifs dans logs/ : 3 fichiers de 10 MB max (server.log + .1 + .2).
@@ -42,11 +43,17 @@ import events as ev_mod
 import geometry
 import nav_graph
 import simulation
+from game_trace import GameTrace
 import sys
 
 # Instance unique de la simu. Initialisée à la première utilisation
 # (bot_ticker) pour que tous les globals de server.py soient déjà déclarés.
 sim = None
+game_trace = GameTrace()
+autogame_end = None
+autogame_shutdown = None
+autogame_boats = []
+autogame_preparation = None
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 _flask_secret_key = os.environ.get("VIRTUALWORLD_SECRET_KEY")
@@ -62,9 +69,47 @@ app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 # plusieurs minutes (le navigateur throttle le pong) sans être déconnecté. Son
 # bateau continue en autopilote pendant ce temps. ping_interval modéré pour ne
 # pas spammer.
-socketio = SocketIO(app, cors_allowed_origins="*", logger=False, engineio_logger=False,
+spectator_sids: set[str] = set()
+
+
+class GameSocketIO(SocketIO):
+    """Filtre tous les intents spectateur avant tout effet des handlers."""
+
+    def on(self, message: str, namespace=None):
+        register = super().on(message, namespace=namespace)
+
+        def decorate(handler):
+            @wraps(handler)
+            def guarded(*args, **kwargs):
+                if request.sid in spectator_sids:
+                    # Un event applicatif forge "disconnect" ne doit pas lever le verrou.
+                    disconnected = message == "disconnect" and not self.server.manager.is_connected(
+                        request.sid, request.namespace)
+                    if not disconnected and message not in {"spectate", "list_teams", "ws_ping"}:
+                        return {"error": "spectator_read_only"}
+                if autogame_preparation is not None and message not in {
+                        "connect", "disconnect", "spectate", "list_teams", "ws_ping", "ws_rtt_report"}:
+                    return {"error": "autogame_preparing"}
+                return handler(*args, **kwargs)
+            return register(guarded)
+        return decorate
+
+
+socketio = GameSocketIO(app, cors_allowed_origins="*", logger=False, engineio_logger=False,
                     ping_timeout=120, ping_interval=25,
                     compression_threshold=0)
+
+# Capture des chemins legacy, sans conserver les options de routage reseau.
+_socket_emit = socketio.emit
+
+
+def _traced_socket_emit(name, payload=None, *args, **kwargs):
+    if game_trace.enabled:
+        game_trace.network(name, payload, players, kwargs.get("to") or kwargs.get("room"))
+    return _socket_emit(name, payload, *args, **kwargs)
+
+
+socketio.emit = _traced_socket_emit
 
 
 # ============================================================================
@@ -106,9 +151,9 @@ def _round_pos(pos, n=2):
 
 def _emit_one(name, payload, target_sid=None):
     if target_sid:
-        socketio.emit(name, payload, to=target_sid)
+        _socket_emit(name, payload, to=target_sid)
     else:
-        socketio.emit(name, payload)
+        _socket_emit(name, payload)
 
 
 def _dispatch_player_joined(e):
@@ -128,6 +173,7 @@ def _dispatch_player_moved(e):
         "reverse": e.reverse,
         "speedRatio": _r(e.speed_ratio, 3),
         "integrity": _r(e.integrity, 1),
+        "maxIntegrity": e.max_integrity,
         "submerged": e.submerged,
     })
 
@@ -169,7 +215,7 @@ def _dispatch_own_boat_added(e):
 
 
 def _dispatch_integrity_changed(e):
-    _emit_one("integrity", {"value": e.value, "bsid": e.bsid}, target_sid=e.target_sid)
+    _emit_one("integrity", {"value": e.value, "maxIntegrity": e.max_integrity, "bsid": e.bsid}, target_sid=e.target_sid)
 
 
 def _dispatch_boat_changed(e):
@@ -320,7 +366,7 @@ def _dispatch_sonar_beacon_ping(e):
 
 def _dispatch_sonar_pinged(e):
     _emit_one("sonar_pinged", {
-        "id": e.player_id, "x": e.x, "z": e.z,
+        "id": e.player_id, "x": e.x, "z": e.z, "y": e.y,
         "coneDeg": e.cone_deg, "rotation": e.rotation,
         "range": e.range_m, "reveal": e.reveal_m,
     })
@@ -331,7 +377,13 @@ def _dispatch_lure_dropped(e):
         "ownerId": e.owner_id, "lid": e.lid,
         "x": e.x, "y": e.y, "z": e.z,
         "noise": e.noise, "durationMs": e.duration_ms,
+        "integrity": e.integrity, "maxIntegrity": e.max_integrity,
     })
+
+
+def _dispatch_lure_integrity_changed(e):
+    _emit_one("lure_integrity", {"ownerId": e.owner_id, "lid": e.lid,
+              "integrity": e.integrity, "maxIntegrity": e.max_integrity})
 
 
 def _dispatch_lure_destroyed(e):
@@ -344,6 +396,7 @@ def _dispatch_cannon_fire(e):
         "startX": e.start_x, "startY": e.start_y, "startZ": e.start_z,
         "endX": e.end_x, "endY": e.end_y, "endZ": e.end_z,
         "arcHeight": e.arc_height, "duration": e.duration, "impact": e.impact,
+        "shotId": e.shot_id,
     })
 
 
@@ -351,6 +404,11 @@ def _dispatch_cannon_hit(e):
     _emit_one("cannon_hit", {
         "shooterId": e.shooter_id, "targetId": e.target_id, "damage": e.damage,
     })
+
+
+def _dispatch_cannon_impact(e):
+    _emit_one("cannon_impact", {"shooterId": e.shooter_id, "shotId": e.shot_id,
+                              "x": e.x, "y": e.y, "z": e.z, "reason": e.reason})
 
 
 def _dispatch_wake_spawned(e):
@@ -398,6 +456,8 @@ def _dispatch_admin_error(e):
 
 # Table type → dispatcher.
 EVENT_DISPATCH = {
+    ev_mod.BotTeleported: lambda e: None,  # Trace seulement ; position via PlayerMoved.
+    ev_mod.RLDecision: lambda e: None,  # Diagnostic sans emission reseau.
     ev_mod.PlayerJoined: _dispatch_player_joined,
     ev_mod.PlayerLeft: _dispatch_player_left,
     ev_mod.PlayerMoved: _dispatch_player_moved,
@@ -434,9 +494,11 @@ EVENT_DISPATCH = {
     ev_mod.SonarBeaconPing: _dispatch_sonar_beacon_ping,
     ev_mod.SonarPinged: _dispatch_sonar_pinged,
     ev_mod.LureDropped: _dispatch_lure_dropped,
+    ev_mod.LureIntegrityChanged: _dispatch_lure_integrity_changed,
     ev_mod.LureDestroyed: _dispatch_lure_destroyed,
     ev_mod.CannonFire: _dispatch_cannon_fire,
     ev_mod.CannonHit: _dispatch_cannon_hit,
+    ev_mod.CannonImpact: _dispatch_cannon_impact,
     ev_mod.WakeSpawned: _dispatch_wake_spawned,
     ev_mod.DayCycleState: _dispatch_day_cycle_state,
     ev_mod.CheatViewBot: _dispatch_cheat_view_bot,
@@ -452,7 +514,10 @@ EVENT_DISPATCH = {
 
 def dispatch_events(events_list):
     """Drain le buffer Sim et publie sur socketio. Inconnu = warning."""
+    if autogame_end is not None:
+        autogame_end.record(events_list)
     for e in events_list:
+        game_trace.event(e, players)
         fn = EVENT_DISPATCH.get(type(e))
         if fn is None:
             logging.warning(f"[event-dispatch] No handler for {type(e).__name__}")
@@ -522,7 +587,10 @@ def load_world():
 def load_boat(boat_type):
     filename = "boats/destroyer.json" if boat_type == "destroyer" else "boats/submarine.json"
     with open(filename, "r") as f:
-        return json.load(f)
+        boat = json.load(f)
+    simulation.integrity_capacity(boat)
+    simulation.integrity_capacity(boat.get("acousticLures") or {}, 10.0)
+    return boat
 
 
 # Phase G : helpers géométriques migrés dans geometry.py (purs, sans Flask).
@@ -906,6 +974,8 @@ def handle_select_boat(data):
     _init_payload = {
         "world": _world_for_init,
         "playerId": player_id,
+        "integrity": players[request.sid]["integrity"],
+        "maxIntegrity": players[request.sid]["maxIntegrity"],
         "boatType": boat_type,
         "boat": boat_data,
         "team_id": team_id,
@@ -945,6 +1015,55 @@ def handle_select_boat(data):
     emit("player_joined", players[request.sid], broadcast=True, include_self=False)
     # Multi-bateaux : initialise la liste avec le bateau primaire.
     player_boats_sids[request.sid] = [request.sid]
+
+
+@socketio.on("spectate")
+def handle_spectate() -> dict:
+    """Connexion de diagnostic sans bateau, equipe, munitions ni appel Sim."""
+    if request.sid in players:
+        return {"error": "already_playing"}
+    if request.sid in spectator_sids:
+        return {"spectator": True}
+    now = time.time()
+    payload = {
+        "spectator": True,
+        "world": load_world(),
+        "players": {sid: p for sid, p in players.items()},
+        "dayCycle": day_cycle_snapshot(),
+        "sonarBeacons": [
+            {k: v for k, v in b.items() if k not in ("ownerSid", "revealedTeams")}
+            for b in sonar_beacons.values()
+        ],
+        "passiveSonarBeacons": list(passive_sonar_beacons.values()),
+        "mines": [_mine_payload(m) for m in mines_server.values()],
+        "grenades": [
+            {**{k: g[k] for k in ("gid", "phase", "x", "y", "z", "vx", "vy", "vz", "impactX", "impactZ")},
+             "shooterId": g["ownerPlayerId"], "targetDepth": g["targetDepthU"],
+             "sinkSpeed": g["sinkSpeedU"]}
+            for g in grenades_server.values()
+        ],
+    }
+    spectator_sids.add(request.sid)
+    emit("init", payload)
+    # Rattrapage non journalise : ce ne sont pas de nouveaux tirs/largages.
+    for t in torpedoes_server.values():
+        _emit_one("torpedo_state", {
+            **{k: t.get(k) for k in ("tid", "kind", "x", "y", "z", "dirX", "dirZ")},
+            "ownerId": t["ownerPlayerId"],
+        }, target_sid=request.sid)
+    for d in drones_server.values():
+        _emit_one("drone_state", {
+            **{k: d.get(k) for k in ("did", "kind", "x", "y", "z", "dirX", "dirZ", "speed", "autonomy", "traveled")},
+            "ownerId": d["ownerPlayerId"],
+            "returning": bool(d.get("returning")), "rangeMeters": d.get("range_m", 0),
+        }, target_sid=request.sid)
+    for lure in server_lures.values():
+        if lure["expiresAt"] > now:
+            _emit_one("lure_dropped", {
+                **{k: v for k, v in lure.items() if k != "expiresAt"},
+                "durationMs": (lure["expiresAt"] - now) * 1000,
+            }, target_sid=request.sid)
+    return {"spectator": True}
 
 
 def _cleanup_player_entities(sid, pid):
@@ -988,6 +1107,9 @@ def _cleanup_player_entities(sid, pid):
 
 @socketio.on("disconnect")
 def handle_disconnect():
+    if request.sid in spectator_sids:
+        spectator_sids.discard(request.sid)
+        return
     if request.sid not in players:
         return
     pid = players[request.sid]["id"]
@@ -1040,6 +1162,20 @@ def handle_cheat_swap_to_self():
         return
     autopiloted_sids.discard(request.sid)
     emit("cheat_view_self", {})
+
+
+@socketio.on("cheat_move_bot")
+def handle_cheat_move_bot(data: object) -> None:
+    """Memes droits que les cheats existants : session ayant rejoint le jeu."""
+    actor = players.get(request.sid)
+    if not actor or actor.get("is_bot"):
+        emit("cheat_move_bot_result", {"ok": False, "message": "Rejoignez le jeu avant telebot"})
+        return
+    if not isinstance(data, dict):
+        error = "Requete telebot invalide"
+    else:
+        error = sim.teleport_bot(actor["id"], data.get("id"), data.get("x"), data.get("z"))
+    emit("cheat_move_bot_result", {"ok": error is None, "message": error or "Bot teleporte"})
 
 
 @socketio.on("cheat_bot_speed_mult")
@@ -1132,6 +1268,7 @@ def handle_cheat_resupply(data):
     init_lure_ammo_for_sid(acting_sid)
     init_mine_ammo_for_sid(acting_sid)
     init_player_integrity(acting_sid)
+    emit_integrity(acting_sid, p)
     bsid = acting_sid if acting_sid != request.sid else None
     # Format plat attendu côté client : { bsid, ...counts }.
     torp_payload = dict(torpedo_ammo.get(acting_sid) or {}); torp_payload["bsid"] = bsid
@@ -1259,6 +1396,8 @@ def handle_change_boat():
         init_mine_ammo_for_sid(request.sid)
         init_player_integrity(request.sid)
         emit("boat_changed", {
+            "integrity": players[request.sid]["integrity"],
+            "maxIntegrity": players[request.sid]["maxIntegrity"],
             "boatType": new_type,
             "boat": new_boat,
             "torpedoCounts": dict(torpedo_ammo.get(request.sid) or {}),
@@ -1491,6 +1630,7 @@ def handle_move(data):
         "reverse": data.get("reverse", False),
         "speedRatio": _r(_sr, 3) if _sr is not None else None,
         "integrity": _r(float(p.get("integrity", 100.0)), 1),
+        "maxIntegrity": p.get("maxIntegrity", 100.0),
         "submerged": new_pos.get("y", 0) <= -5.0 / UNIT_METERS_BOT,
     }, broadcast=True, include_self=False)
 
@@ -1649,6 +1789,7 @@ def handle_lure_drop(data):
     y = pos.get("y", 0) if boat_type == "submarine" else 0.0
     noise = float(spec.get("noise", 0))
     duration_ms = float(spec.get("time", 0)) * 60.0 * 1000.0
+    capacity = simulation.integrity_capacity(spec, 10.0)
     pid = p["id"]
     lid = next_lure_lid.get(pid, 1)
     next_lure_lid[pid] = lid + 1
@@ -1657,6 +1798,7 @@ def handle_lure_drop(data):
         "ownerId": pid, "lid": lid,
         "x": x, "y": y, "z": z, "noise": noise,
         "expiresAt": expires_at,
+        "integrity": capacity, "maxIntegrity": capacity,
     }
     lure_ammo[acting_sid] = max(0, lure_ammo.get(acting_sid, 0) - 1)
     emit_lure_count(acting_sid)
@@ -1664,6 +1806,7 @@ def handle_lure_drop(data):
         "ownerId": pid, "lid": lid,
         "x": x, "y": y, "z": z, "noise": noise,
         "durationMs": duration_ms,
+        "integrity": capacity, "maxIntegrity": capacity,
     })
 
 
@@ -2236,6 +2379,8 @@ def handle_add_player_boat(data):
     # nouveau bateau exactement comme un humain ou bot).
     socketio.emit("player_joined", players[ghost_sid])
     emit("own_boat_added", {
+        "integrity": players[ghost_sid]["integrity"],
+        "maxIntegrity": players[ghost_sid]["maxIntegrity"],
         "ghostSid": ghost_sid,
         "playerId": new_pid,
         "boatType": boat_type,
@@ -2533,23 +2678,28 @@ def _random_spawn_on_nav_graph(world_data, players_dict):
     return random_ocean_position(world_data, players_dict)
 
 
-def spawn_bot(boat_type, ai_name=None, team_id=None, team_name=None):
+def spawn_bot(boat_type, ai_name=None, team_id=None, team_name=None, *,
+              position=None, rotation=None, prepared_ai=None):
     global next_bot_id
     boat_data = load_boat(boat_type)
     world_data = load_world()
-    spawn_x, spawn_z = _random_spawn_on_nav_graph(world_data, players)
+    spawn_x, spawn_z = (_random_spawn_on_nav_graph(world_data, players)
+                        if position is None else (position["x"], position["z"]))
     bot_pid = f"bot{next_bot_id:03d}"
     next_bot_id += 1
     sid = f"__bot__{bot_pid}"
     flotation = boat_data.get("flotation", 2)
     surface_y = -flotation / UNIT_METERS_BOT
-    rotation = random.uniform(0, 6.2832)
+    if rotation is None:
+        rotation = random.uniform(0, 6.2832)
     max_speed_kn = boat_data.get("speed", 25)
     max_speed_us = max_speed_kn * 0.514444 / UNIT_METERS_BOT
     max_depth_m = boat_data.get("maxDepthMeters", 200) if boat_type == "submarine" else 0
     # Les bots sous-marins ne sortent jamais en surface : ils spawnent à profondeur
     # de plongée aléatoire (entre 30 m et 70 % de leur profondeur max).
-    if boat_type == "submarine":
+    if position is not None:
+        spawn_y = position["y"]
+    elif boat_type == "submarine":
         min_depth_m = 30
         depth_m = random.uniform(min_depth_m, max(min_depth_m + 1, max_depth_m * 0.7))
         spawn_y = -depth_m / UNIT_METERS_BOT
@@ -2577,14 +2727,16 @@ def spawn_bot(boat_type, ai_name=None, team_id=None, team_name=None):
         "spawn_y": spawn_y,
         "waypoint": None,
         "last_emit": 0.0,
-        "integrity": 100.0,
     }
+    simulation.init_hull_integrity(bot)
     # IA : BT classique ou politique RL chargée après l'initialisation des munitions.
     selected_ai = ai_name or boat_data.get("ai") or "default"
     rl_requested = isinstance(selected_ai, str) and selected_ai.startswith("rl_")
     bot["ai_name"] = selected_ai
-    bot["ai_tree"] = None if rl_requested else bot_ai.load_ai(selected_ai)
+    bot["ai_tree"] = None if rl_requested or prepared_ai is not None else bot_ai.load_ai(selected_ai)
     bot["external_control"] = rl_requested
+    if prepared_ai is not None:
+        bot.update(prepared_ai)
     final_team_id = team_id or "bots"
     final_team_name = team_name or ("Bots" if final_team_id == "bots" else final_team_id)
     bot["team_id"] = final_team_id
@@ -2597,6 +2749,8 @@ def spawn_bot(boat_type, ai_name=None, team_id=None, team_name=None):
         "position": dict(bot["position"]),
         "rotation": rotation,
         "is_bot": True,
+        "integrity": bot["integrity"],
+        "maxIntegrity": bot["maxIntegrity"],
         "team_id": final_team_id,
         "team_name": final_team_name,
     }
@@ -2607,10 +2761,10 @@ def spawn_bot(boat_type, ai_name=None, team_id=None, team_name=None):
     init_beacon_ammo_for_sid(sid)
     init_lure_ammo_for_sid(sid)
     init_mine_ammo_for_sid(sid)
-    if rl_requested:
+    if rl_requested and prepared_ai is None:
         try:
             from rl.rl_runtime import attach_controller
-            attach_controller(bot, selected_ai)
+            attach_controller(bot, selected_ai, trace_enabled=game_trace.enabled)
         except Exception:
             fallback_ai = "autodest" if boat_type == "destroyer" else "autosub"
             logging.exception("[rl] impossible de charger %s, repli sur %s", selected_ai, fallback_ai)
@@ -2712,13 +2866,6 @@ def spawn_torpedo(sid, player_dict, data):
     if not spec:
         return
     pid = player_dict["id"]
-    ammo = torpedo_ammo.get(sid)
-    if ammo is None:
-        init_torpedo_ammo_for_sid(sid)
-        ammo = torpedo_ammo.get(sid) or {}
-    if ammo.get(kind, 0) <= 0:
-        logging.info(f"[torpedo-fire-REFUS] {pid} kind={kind} ammo={ammo.get(kind)} (munitions épuisées côté serveur)")
-        return
     # Filoguidée : une seule à la fois.
     if kind == "wireGuided" and active_wire_torpedoes.get(pid):
         logging.info(f"[torpedo-fire-REFUS] {pid} kind=wireGuided : une filoguidée déjà en vol")
@@ -2733,10 +2880,12 @@ def spawn_torpedo(sid, player_dict, data):
     fixed = data.get("fixedTarget") or None
     aim_x = aim_z = None
     aim_y = 0.0
-    if target_id:
+    if target_id is not None:
         for sid2, other in players.items():
             if other.get("id") == target_id:
                 opos = other.get("position") or {}
+                if not sim.bot_target_los(player_dict, opos):
+                    return
                 aim_x = opos.get("x", 0)
                 aim_z = opos.get("z", 0)
                 aim_y = opos.get("y", 0)
@@ -2753,24 +2902,31 @@ def spawn_torpedo(sid, player_dict, data):
                                 f"bot[]={bp.get('x', 0):.1f},{bp.get('z', 0):.1f}"
                             )
                 break
+    if target_id is not None and aim_x is None:
+        return
     if aim_x is None and fixed:
         aim_x = float(fixed.get("x", 0))
         aim_z = float(fixed.get("z", 0))
-    if aim_x is None:
-        return
     # Validation portée.
     max_range_m = spec.get("maxRangeMeters", 10000)
-    dist_m = math.hypot(aim_x - bx, aim_z - bz) * UNIT_METERS_BOT
+    dist_m = math.hypot(aim_x - bx, aim_z - bz) * UNIT_METERS_BOT if aim_x is not None else 0.0
     # Log diagnostic tir humain : on vérifie que la cible serveur est bien là
     # où le client visait. Si targetId, on log la position serveur courante du
     # bateau cible (= position où la torpille va se diriger en phase course).
     logging.info(
         f"[torpedo-fire] kind={kind} shooter={pid} pos=({bx:.1f},{bz:.1f}) "
-        f"targetId={target_id} fixed={fixed} aim=({aim_x:.1f},{aim_z:.1f}) "
+        f"targetId={target_id} fixed={fixed} aim=({aim_x},{aim_z}) "
         f"dist={dist_m:.0f} m"
     )
     if dist_m > max_range_m:
         logging.info(f"[torpedo-fire-REFUS] {pid} kind={kind} dist={dist_m:.0f}m > portée max {max_range_m}m (cible hors de portée)")
+        return
+    ammo = torpedo_ammo.get(sid)
+    if ammo is None:
+        init_torpedo_ammo_for_sid(sid)
+        ammo = torpedo_ammo.get(sid) or {}
+    if ammo.get(kind, 0) <= 0:
+        logging.info(f"[torpedo-fire-REFUS] {pid} kind={kind} ammo={ammo.get(kind)} (munitions épuisées côté serveur)")
         return
     # Activation : valeur saisie côté client (mètres), clampée [0, maxRange-1].
     # Fallback sur la valeur du JSON si non fournie.
@@ -2822,7 +2978,7 @@ def spawn_torpedo(sid, player_dict, data):
         "acquiredBoatId": None,
         "inAcquisition": False,
         "lastIntensity": 0.0,
-        "initialTarget": (aim_x, aim_y, aim_z),
+        "initialTarget": (aim_x, aim_y, aim_z) if aim_x is not None else None,
         "targetId": target_id,
         "wireYaw": 0,
         "wirePitch": 0,
@@ -2859,12 +3015,12 @@ def spawn_torpedo(sid, player_dict, data):
         notify_shooter_torpedo_status(t, acquired=True)
 
 
-def spawn_bot_torpedo(bot, target_player):
+def spawn_bot_torpedo(bot, target_player=None):
     """Phase E : délégué à Sim.spawn_bot_torpedo."""
     return sim.spawn_bot_torpedo(bot, target_player)
 
 
-def spawn_bot_torpedo_autonomous(bot, target_player, activation_m=None):
+def spawn_bot_torpedo_autonomous(bot, target_player=None, activation_m=None):
     """Tire une torpille autonome avec activation personnalisée."""
     return sim.spawn_bot_torpedo_autonomous(bot, target_player, activation_m)
 
@@ -3138,6 +3294,8 @@ def fire_cannon_intent(sid, shooter, data):
     `data` : { kind, targetType, targetId|key|bid }."""
     import math
     kind = data.get("kind")
+    if kind == "cannon" and data.get("targetType") == "point":
+        return sim.fire_cannon(sid, shooter, data.get("fixedTarget"), "point")
     if kind not in ("cannon", "antiAircraft"):
         return
     boat = shooter.get("boat") or {}
@@ -3153,12 +3311,6 @@ def fire_cannon_intent(sid, shooter, data):
         surface_y = -flotation_m / UNIT_METERS_BOT
         if pos.get("y", 0) < surface_y - 0.05:
             return
-    ammo = cannon_ammo.get(sid)
-    if ammo is None:
-        init_cannon_ammo_for_sid(sid)
-        ammo = cannon_ammo.get(sid) or {}
-    if ammo.get(kind, 0) <= 0:
-        return
     # Résolution de la cible.
     target_type = data.get("targetType")
     tx = ty = tz = None
@@ -3171,6 +3323,8 @@ def fire_cannon_intent(sid, shooter, data):
         for sid2, p in players.items():
             if p.get("id") == target_boat_id:
                 p2 = p.get("position") or {}
+                if not sim.bot_target_los(shooter, p2):
+                    return
                 tx, ty, tz = p2.get("x", 0), p2.get("y", 0), p2.get("z", 0)
                 # Sub immergé : pas ciblable au canon/DCA
                 t_boat = p.get("boat") or {}
@@ -3189,6 +3343,8 @@ def fire_cannon_intent(sid, shooter, data):
         drone = drones_server.get((target_drone_owner, target_drone_did))
         if not drone:
             return
+        if not sim.bot_target_los(shooter, drone):
+            return
         tx, ty, tz = drone["x"], drone["y"], drone["z"]
     elif target_type == "beacon":
         if kind not in ("cannon", "antiAircraft"):
@@ -3196,6 +3352,8 @@ def fire_cannon_intent(sid, shooter, data):
         target_beacon_bid = data.get("bid")
         beacon = sonar_beacons.get(target_beacon_bid)
         if not beacon:
+            return
+        if not sim.bot_target_los(shooter, beacon):
             return
         tx, ty, tz = beacon["x"], 0.0, beacon["z"]
     elif target_type == "passive_beacon":
@@ -3205,6 +3363,8 @@ def fire_cannon_intent(sid, shooter, data):
         pbeacon = passive_sonar_beacons.get(target_passive_beacon_bid)
         if not pbeacon:
             return
+        if not sim.bot_target_los(shooter, pbeacon):
+            return
         tx, ty, tz = pbeacon["x"], 0.0, pbeacon["z"]
     elif target_type == "mine":
         # Canon ou DCA peuvent tirer sur une mine de surface uniquement.
@@ -3213,9 +3373,13 @@ def fire_cannon_intent(sid, shooter, data):
         mine = mines_server.get((target_mine_owner, target_mine_mid))
         if not mine or mine.get("kind") != "surface":
             return
+        if not sim.bot_target_los(shooter, mine):
+            return
         tx, ty, tz = mine["x"], 0.0, mine["z"]
     else:
         return
+    if kind == "cannon":
+        return sim.fire_cannon(sid, shooter, {"x": tx, "y": ty, "z": tz}, target_type)
     bx = pos.get("x", 0)
     bz = pos.get("z", 0)
     dx_m = (tx - bx) * UNIT_METERS_BOT
@@ -3224,6 +3388,12 @@ def fire_cannon_intent(sid, shooter, data):
     dist_m = (dx_m * dx_m + dy_m * dy_m + dz_m * dz_m) ** 0.5
     range_m = spec.get("range", 8000)
     if dist_m > range_m:
+        return
+    ammo = cannon_ammo.get(sid)
+    if ammo is None:
+        init_cannon_ammo_for_sid(sid)
+        ammo = cannon_ammo.get(sid) or {}
+    if ammo.get(kind, 0) <= 0:
         return
     ammo[kind] = max(0, ammo.get(kind, 0) - 1)
     emit_cannon_counts(sid)
@@ -3374,10 +3544,12 @@ def _get_bt_deps():
             "pick_bot_waypoint": pick_bot_waypoint,
             "point_on_any_island": point_on_any_island,
             "detect_enemies_passive": detect_enemies_passive,
+            "active_sonar_contacts": sim.active_sonar_contacts,
             "spawn_bot_torpedo": spawn_bot_torpedo,
             "spawn_bot_torpedo_autonomous": spawn_bot_torpedo_autonomous,
             "bot_torpedoes_status": bot_torpedoes_status,
             "bot_fire_cannon": bot_fire_cannon,
+            "bot_target_los": sim.bot_target_los,
             "bot_fire_aa": bot_fire_aa,
             "bot_torpedoes_threat": bot_torpedoes_threat,
             "bot_drop_lure": bot_drop_lure,
@@ -3453,14 +3625,23 @@ def bot_ticker():
         if gap > _ws_diag["gap_max"]:
             _ws_diag["gap_max"] = gap
         last = now
+        if not start_autogame_if_ready():
+            game_trace.observe(sim, sys.modules[__name__])
+            continue
         any_human = any(not p.get("is_bot") for p in players.values())
         if not bots and not any_human and not torpedoes_server and not drones_server and not grenades_server:
+            if autogame_end is not None:
+                dispatch_events(sim.drain_events())
+            game_trace.observe(sim, sys.modules[__name__])
+            if finish_autogame():
+                return
             continue
         if cached["name"] != current_map_name or cached["world"] is None:
             try:
                 cached["world"] = load_world()
                 cached["name"] = current_map_name
                 sim.world_data = cached["world"]
+                game_trace.world(current_map_name, cached["world"])
             except Exception as e:
                 logging.warning(f"[bot_ticker] impossible de charger le monde: {e}")
                 continue
@@ -3470,7 +3651,11 @@ def bot_ticker():
         n_steps = max(1, int(sim_tick_multiplier))
         for _ in range(n_steps):
             try:
+                sim.trace_rl_decisions = game_trace.enabled
+                if sim.trace_rl_decisions:
+                    sim.trace_step = game_trace.tick + 1
                 sim.step(dt, world_data)
+                game_trace.observe(sim, sys.modules[__name__], dt)
             except Exception as e:
                 logging.exception(f"sim step error: {e}")
                 break
@@ -3486,6 +3671,8 @@ def bot_ticker():
                     _ws_diag["dispatch_time_max"] = _dispatch_ms
         except Exception as e:
             logging.exception(f"[sim] event drain error: {e}")
+        if finish_autogame():
+            return
         # Rapport diag WS toutes les WS_DIAG_INTERVAL secondes (seulement si catégorie active)
         if now - _ws_diag["last_report"] >= WS_DIAG_INTERVAL and _ws_diag["tick_count"] > 0:
             from debug_log import dlog
@@ -3525,6 +3712,8 @@ def bot_ticker():
 def sonar_beacon_ticker():
     while True:
         socketio.sleep(SONAR_BEACON_PING_INTERVAL)
+        if autogame_preparation is not None:
+            continue
         now = time.time()
         try:
             world_data = load_world()
@@ -3664,6 +3853,8 @@ def passive_sonar_beacon_ticker():
     from simulation import compute_emitted_noise, perceived_noise
     while True:
         socketio.sleep(PASSIVE_BEACON_TICK_INTERVAL)
+        if autogame_preparation is not None:
+            continue
         if not passive_sonar_beacons:
             continue
         try:
@@ -3726,6 +3917,141 @@ def passive_sonar_beacon_ticker():
                 })
 
 
+def start_autogame_if_ready() -> bool:
+    """Seul le ticker de simulation ouvre la partie, sans bloquer l'ecoute."""
+    global autogame_preparation
+    if autogame_preparation is None:
+        return True
+    now = time.monotonic()
+    if now < autogame_preparation["plannedStartMonotonic"]:
+        return False
+    result = dict(autogame_preparation, startedMonotonic=now, startedAt=time.time())
+    # Seule echeance de comportement armee au spawn ; aucun cooldown de tir actif.
+    waited = now - autogame_preparation["readyMonotonic"]
+    for bot in bots.values():
+        if "next_depth_change_at" in bot:
+            bot["next_depth_change_at"] += waited
+    autogame_preparation = None
+    if autogame_end is not None:
+        autogame_end.started = now
+    logging.info("[autogame_started] %s", json.dumps(result, sort_keys=True))
+    if game_trace.enabled:
+        try:
+            game_trace._write("autogame_started", result)
+            game_trace._next_sample = 0
+            game_trace.observe(sim, sys.modules[__name__])
+        except Exception:
+            game_trace._disable()
+    return True
+
+
+def finish_autogame() -> bool:
+    """Termine apres drainage du tick entier, puis reveille le processus principal."""
+    if autogame_end is None:
+        return False
+    was_settling = autogame_end.settling is not None
+    result = autogame_end.evaluate(torpedoes_server.values())
+    if not was_settling and autogame_end.settling is not None and game_trace.enabled:
+        try:
+            game_trace._write("autogame_settling", autogame_end.settling)
+        except Exception:
+            game_trace._disable()
+    if result is None:
+        return False
+    result.update(map=current_map_name, boats=autogame_boats)
+    logging.info("[autogame_end] %s", json.dumps(result, sort_keys=True))
+    print("[autogame_end] " + json.dumps(result, sort_keys=True), flush=True)
+    if game_trace.enabled:
+        try:
+            game_trace._next_sample = 0
+            game_trace.observe(sim, sys.modules[__name__])
+            game_trace._write("autogame_end", result)
+        except Exception:
+            game_trace._disable()
+    game_trace.close()
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+    autogame_shutdown.send()
+    return True
+
+
+def run_server() -> None:
+    """Le greenlet principal attend le serveur ou la fin du scenario, sans port annexe."""
+    global autogame_shutdown
+    from eventlet.event import Event
+    autogame_shutdown = Event()
+
+    def serve() -> None:
+        try:
+            socketio.run(app, host="0.0.0.0", port=port,
+                         certfile="certs/cert.pem", keyfile="certs/key.pem",
+                         log_output=True)
+        except BaseException:
+            if not autogame_shutdown.ready():
+                autogame_shutdown.send_exception(*sys.exc_info())
+        else:
+            if not autogame_shutdown.ready():
+                autogame_shutdown.send()
+
+    eventlet.spawn(serve)
+    try:
+        autogame_shutdown.wait()
+    finally:
+        game_trace.close()
+        logging.shutdown()
+
+
+def initialize_autogame():
+    """Charge une seule fois au demarrage, avant toute tache ou socket cliente."""
+    global sim, autogame_end, autogame_boats, autogame_preparation
+    from pathlib import Path
+    from autogame import prepare_autogame, AutogameEnd
+
+    world = load_world()
+    scenario = prepare_autogame(Path(__file__).resolve().with_name("autogame.json"),
+                                current_map_name, world, load_boat, MAX_BOTS,
+                                trace_enabled=game_trace.enabled)
+    sim = simulation.Sim(world)
+    sim.set_legacy_hooks(sys.modules[__name__])
+    members = {}
+    autogame_boats = []
+    for entry in scenario.boats:
+        pid = spawn_bot(**entry)
+        members[pid] = entry["team_id"]
+        autogame_boats.append(dict(id=pid, **{key: value for key, value in entry.items()
+                                             if key != "prepared_ai"}))
+        logging.info("[autogame] %s type=%s ai=%s team=%s position=%s rotation=%s",
+                     pid, entry["boat_type"], entry["ai_name"], entry["team_id"],
+                     entry["position"], entry["rotation"])
+    if game_trace.enabled:
+        try:
+            game_trace._write("autogame", {"map": current_map_name, "boats": autogame_boats,
+                              "endCondition": scenario.end_condition,
+                              "maxDurationSeconds": scenario.max_duration,
+                              "startDelaySeconds": scenario.start_delay})
+        except Exception:
+            game_trace._disable()
+        game_trace.observe(sim, sys.modules[__name__])
+    autogame_end = (AutogameEnd(members, scenario.end_condition, scenario.max_duration,
+                               time.monotonic)
+                    if scenario.end_condition is not None or scenario.max_duration is not None else None)
+    if autogame_end is not None:
+        autogame_end.started = None
+    ready = time.monotonic()
+    ready_at = time.time()
+    autogame_preparation = dict(startDelaySeconds=scenario.start_delay,
+                               readyMonotonic=ready, readyAt=ready_at,
+                               plannedStartMonotonic=ready + scenario.start_delay,
+                               plannedStartAt=ready_at + scenario.start_delay)
+    logging.info("[autogame_ready] %s", json.dumps(autogame_preparation, sort_keys=True))
+    if game_trace.enabled:
+        try:
+            game_trace._write("autogame_ready", autogame_preparation)
+        except Exception:
+            game_trace._disable()
+    logging.info("[autogame] %d bateaux crees", len(scenario.boats))
+
+
 if __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser(description="Virtual World server")
@@ -3735,6 +4061,10 @@ if __name__ == "__main__":
                     help="Port HTTPS d'écoute")
     ap.add_argument("--maxPlayer", type=int, default=10,
                     help="Nombre maximum de joueurs humains simultanés")
+    ap.add_argument("--trace", action="store_true",
+                    help="Trace serveur JSONL bornee dans logs/game_trace.jsonl")
+    ap.add_argument("--autogame", action="store_true", default=False,
+                    help="Charge le scenario autogame.json au demarrage")
     args = ap.parse_args()
     if not SAFE_NAME_RE.match(args.map):
         raise SystemExit(f"Nom de carte invalide : {args.map}")
@@ -3745,10 +4075,29 @@ if __name__ == "__main__":
     write_current_map_name(args.map)
     globals()["MAX_HUMAN_PLAYERS"] = max(1, args.maxPlayer)
     port = args.port
+    game_trace = GameTrace(enabled=args.trace, path=os.path.join(_LOG_DIR, "game_trace.jsonl"))
+    if game_trace.enabled:
+        try:
+            game_trace.metadata(os.path.dirname(os.path.abspath(__file__)), args.map, load_world())
+        except Exception:
+            game_trace._disable()
+        import atexit
+        atexit.register(game_trace.close)
+        if game_trace.enabled:
+            logging.info("[trace] logs/game_trace.jsonl enabled: 4 Hz, 20 MiB + 5 backups")
+    if args.autogame:
+        try:
+            initialize_autogame()
+        except Exception as exc:
+            logging.exception("[autogame] demarrage refuse")
+            raise SystemExit("autogame invalide: consulter logs/server.log") from exc
     print(f"Serveur démarré sur https://0.0.0.0:{port} | map={args.map} | maxPlayers={MAX_HUMAN_PLAYERS}")
     socketio.start_background_task(sonar_beacon_ticker)
     socketio.start_background_task(passive_sonar_beacon_ticker)
     socketio.start_background_task(bot_ticker)
-    socketio.run(app, host="0.0.0.0", port=port,
-                 certfile="certs/cert.pem", keyfile="certs/key.pem",
-                 log_output=True)
+    if autogame_end is not None:
+        run_server()
+    else:
+        socketio.run(app, host="0.0.0.0", port=port,
+                     certfile="certs/cert.pem", keyfile="certs/key.pem",
+                     log_output=True)

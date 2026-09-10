@@ -107,6 +107,17 @@
 
 <h2 id="commandes">2. Commandes</h2>
 
+<h3>Observer sans piloter</h3>
+<ul>
+    <li>Depuis l'accueil : <strong>Observer la partie</strong>, ou <code>/?spectate=1</code>. Aucun bateau personnel : vue joueur sur le premier bateau existant.</li>
+    <li><strong>Changer unité</strong> (bouton Unités habituel), Tab / Shift-Tab : bateau suivant / précédent, humains et bots de toutes les équipes. <code>movebot</code> reste local.</li>
+    <li>Glisser pour regarder, molette pour zoomer, <strong>Zoom</strong> pour la vue embarquée ; eau et profondeur suivent le bateau observé.</li>
+    <li>Radar normal par défaut, avec les règles capteurs de cette unité et de son équipe. Taper <code>allmap</code> bascule la carte complète de diagnostic, sans commande serveur ; zoom et déplacement de carte restent disponibles.</li>
+    <li>Clic sur un contact radar visible ou une étiquette 3D : suivre sans cibler. Naufrage/départ : survivant suivant ; sans bateau, attente de la première arrivée, sans écran de mort.</li>
+    <li>Intégrité en pourcentage, vitesse, cap et profondeur en lecture seule. Munitions distantes non communiquées, arsenal masqué. Pas de pilotage, tir, ajout ou commande admin.</li>
+    <li>Les détections privées et l'historique avant observation ne sont pas reconstitués : cette vue ne garantit pas une perception exactement identique à celle du joueur ou d'un bot RL.</li>
+</ul>
+
 <h3>Navigation</h3>
 <ul>
     <li><kbd>↑</kbd> / <kbd>↓</kbd>&nbsp;: avant / arrière</li>
@@ -499,6 +510,16 @@
 <p>Le bateau que vous quittez continue avec son dernier <em>cap + vitesse</em>. Il évite automatiquement les îles. Les <strong>drones manuels</strong> et <strong>torpilles filoguidées</strong> qu'il avait en l'air continuent leur trajectoire (sans contrôle manuel) tant que vous n'êtes pas revenu sur ce bateau via Tab.</p>
 <p>Si un de vos bateaux coule, vous restez sur lui pour voir le naufrage. Au prochain <kbd>Tab</kbd> il est retiré de la liste cyclable.</p>
 <p>Chaque bateau a son propre stock d'armement (torpilles, mines, etc.) initialisé depuis son JSON.</p>
+
+<h2 id="cheats">14. Cheats de placement</h2>
+<p>Taper les codes directement en jeu, hors champ de saisie.</p>
+<ul>
+    <li><code>allmap</code> : afficher toute la carte pour faciliter la sélection.</li>
+    <li><code>move</code> : cliquer sur la carte radar pour déplacer son bateau.</li>
+    <li><code>movebot</code> (ou <code>bot</code>) : passer en vue bot, puis au suivant ; <code>self</code> revient à son bateau, sans téléporter le bot.</li>
+    <li><code>telebot</code> : sélectionner un bot vivant allié ou ennemi sur le radar ou en 3D, taper le code, puis cliquer la destination sur le radar. Aucun joueur humain ne peut être déplacé. <kbd>Échap</kbd> annule ; retaper le code après un refus.</li>
+    <li>Le serveur valide la destination (hors îles et dans la carte), conserve la profondeur et arrête momentanément le bot ; son IA reprend ensuite. Ces cheats sont accessibles aux joueurs ayant rejoint la partie, sans rôle administrateur distinct.</li>
+</ul>
 
 <h2>Bonne chasse, capitaine.</h2>
 <p style="text-align:center;margin-top:30px;"><a href="/">← Retour au jeu</a></p>

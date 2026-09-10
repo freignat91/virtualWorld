@@ -6,6 +6,12 @@ console.log("[startup] après BABYLON.Engine t=" + performance.now().toFixed(0) 
 // Évite l'erreur engineio "Too many packets in payload" qui survient quand le
 // batching HTTP du polling déborde au-delà du cap (16 par défaut).
 const socket = io({ autoConnect: false, transports: ["websocket"] });
+let spectatorMode = false;
+const emitIntent = socket.emit.bind(socket);
+socket.emit = (event, ...args) => {
+    if (spectatorMode && !["spectate", "list_teams", "ws_ping"].includes(event)) return socket;
+    return emitIntent(event, ...args);
+};
 let selectedBoatType = null;
 
 const UNIT_METERS = 10;
@@ -102,6 +108,7 @@ function refreshTeamList(teams) {
 }
 
 function joinTeam(team_id, team_name) {
+    if (spectatorMode) return;
     if (!selectedBoatType) {
         alert("Choisissez d'abord un bateau.");
         return;
@@ -122,6 +129,129 @@ function createAndJoinTeam() {
     if (!name) return;
     const slug = name.toLowerCase().replace(/[^a-z0-9_-]+/g, "_").slice(0, 32) || ("team" + Date.now());
     joinTeam(slug, name);
+}
+
+function observeGame() {
+    if (_everJoinedGame || spectatorMode) return;
+    spectatorMode = true;
+    socket.emit("spectate");
+}
+
+function followSpectatorBoat(id = null) {
+    viewedBoat = id && !remoteSinking[id] ? remoteBoats[id] || null : null;
+    playerMesh = viewedBoat ? viewedBoat.mesh : null;
+    selectedBoatId = null;
+    radarFrozenBoats = [];
+    for (const cache of [sonarObservedBoats, sonarRevealedUntil, passiveSonarDetectionsUntil, mineRevealedUntil]) {
+        for (const key of Object.keys(cache)) delete cache[key];
+    }
+    for (const ping of activePings) delete ping.emitterRevealedUntil;
+    zoomMode = zoomLowMode = false;
+    scene.activeCamera = scene.getCameraByName("camera");
+    scene.activeCamera.detachControl();
+    cameraTargetVec = null;
+    if (oceanMesh) oceanMesh.isVisible = true;
+    if (seabedMesh) seabedMesh.isVisible = false;
+    scene.clipPlane = scene.__frameClipPlane = null;
+    scene.fogMode = BABYLON.Scene.FOGMODE_NONE;
+    scene.clearColor = new BABYLON.Color3(0.5, 0.7, 0.9);
+    if (viewedBoat) {
+        // Configuration de vue uniquement : aucun Boat local ni transfert de controle.
+        applyBoatConfig(viewedBoat.boatData, viewedBoat.boatType, {});
+        playerRotation = playerMesh.rotation.y;
+        cameraAlpha = -playerRotation;
+        cameraAlphaOffset = 0;
+        cameraRadius = 15;
+        cameraBeta = 1.3;
+        lastSubSubmerged = false;
+        scene.activeCamera.setTarget(playerMesh.position.clone());
+    } else {
+        currentBoatType = null;
+        for (const name of ["speedDisplay", "headingDisplay", "depthDisplay", "integrityDisplay"]) {
+            document.getElementById(name).textContent = "";
+        }
+    }
+    document.getElementById("spectatorStatus").textContent = viewedBoat
+        ? "Vue : " + id + " | Munitions : non communiquees" : "Aucun bateau disponible";
+}
+
+function cycleSpectatorBoat(direction = 1) {
+    const ids = Object.keys(otherPlayersInfo);
+    const index = ids.indexOf(viewedBoat && viewedBoat.id);
+    for (let step = 1; step <= ids.length; step++) {
+        const id = ids[(index + direction * step + ids.length * 2) % ids.length];
+        if (remoteBoats[id] && otherPlayers[id] && !remoteSinking[id]) {
+            followSpectatorBoat(id);
+            return;
+        }
+    }
+    followSpectatorBoat();
+}
+
+function initSpectator(data) {
+    spectatorMode = true;
+    _everJoinedGame = true;
+    document.body.classList.add("spectator");
+    document.getElementById("boatSelect").style.display = "none";
+    document.getElementById("spectatorPanel").hidden = false;
+    document.getElementById("spectatorNextBtn").onclick = () => cycleSpectatorBoat();
+    const unitButton = document.getElementById("botsBtn");
+    unitButton.textContent = "Changer unité";
+    unitButton.title = "Bateau suivant (Tab), precedent (Shift-Tab), toutes equipes";
+    unitButton.style.display = "block";
+    worldData = data.world;
+    islandBoundsCache.length = 0;
+    buildWorld(worldData);
+    applyDayCycleSnapshot(data.dayCycle);
+    createBoatCameras(BABYLON.Vector3.Zero());
+    allMapMode = false;
+    radarZoom = 1;
+    radarCenterX = radarCenterZ = 0;
+    radarVisible = true;
+    radarCanvas.style.display = "block";
+    for (const p of Object.values(data.players)) createOtherPlayer(p);
+    followSpectatorBoat(Object.values(data.players)[0]?.id);
+    for (const b of data.sonarBeacons || []) addSonarBeacon(b);
+    for (const b of data.passiveSonarBeacons || []) addPassiveSonarBeacon(b);
+    for (const m of data.mines || []) addMine(m);
+    for (const g of data.grenades || []) {
+        let visual = grenades.find(old => old.shooterId === g.shooterId && old.gid === g.gid);
+        if (!visual) {
+            spawnGrenadeTrajectory(g.x, g.y, g.z, g.vx, g.vy, g.vz, g.targetDepth, g.sinkSpeed);
+            visual = grenades[grenades.length - 1];
+        }
+        Object.assign(visual, g, { remote: true });
+        visual.mesh.position.set(g.x, g.y, g.z);
+    }
+    initialized = true;
+}
+
+function renderSpectator(dt) {
+    smoothRemotePlayers(dt);
+    animateSecondarySinking(dt);
+    for (const id in otherPlayers) otherPlayers[id].setEnabled(false);
+    if (oceanMesh) oceanMesh.isVisible = true;
+    if (seabedMesh) seabedMesh.isVisible = false;
+    updateRemoteTorpedoes(dt);
+    updateGrenades(dt);
+    updateAcousticLures();
+    updateCannonShells();
+    updateCannonImpacts();
+    updateDroneCrashes(dt);
+    updateDroneExplosions(dt);
+    for (let i = wakePoints.length - 1; i >= 0; i--) {
+        if (performance.now() - wakePoints[i].born < WAKE_LIFETIME) continue;
+        wakePoints[i].mesh.dispose();
+        wakePoints[i].mat.dispose();
+        wakePoints.splice(i, 1);
+    }
+    if (dayCycleState !== "off") updateDayCycle(dt);
+    scene.activeCamera.alpha = cameraAlpha + cameraAlphaOffset;
+    scene.activeCamera.beta = cameraBeta;
+    scene.activeCamera.radius = cameraRadius;
+    renderRadar(scene.activeCamera.target);
+    updateVisuLabels();
+    scene.render();
 }
 
 let adminMode = false;
@@ -172,6 +302,7 @@ let joinGraceUntil = 0; // désactivé (plus de grâce à la connexion)
 let cheatBuffer = "";
 let moveCheatIndex = 0;
 let cheatMoveMode = false;
+let cheatTeleBotId = null;
 let botCheatIndex = 0;
 // localBoat = bateau du joueur ACTUELLEMENT actif (pilotable). remoteBoats[id] = bateaux distants (joueurs/bots).
 // viewedBoat = bateau à l'écran (par défaut localBoat ; pointe sur un bot en vue bot).
@@ -198,8 +329,10 @@ function withBsid(payload) {
 }
 // Clé d'ammo : "primary" pour le bateau primaire (ghostSid null), sinon le ghostSid.
 function ammoKey(ghostSid) { return ghostSid || "primary"; }
-function isViewingLocal() { return viewedBoat === localBoat || viewedBoat == null; }
+function isViewingLocal() { return !spectatorMode && (viewedBoat === localBoat || viewedBoat == null); }
 function viewedBotId() { return isViewingLocal() ? null : (viewedBoat && viewedBoat.id) || null; }
+function sensorPlayerId() { return spectatorMode ? viewedBoat?.id : playerId; }
+function sensorTeamId() { return spectatorMode ? otherPlayersInfo[viewedBoat?.id]?.teamId : localTeamId; }
 let originalBoatData = null;
 let originalBoatType = null;
 
@@ -335,7 +468,11 @@ const WAKE_INTERVAL_REMOTE = 140;    // bateaux distants (moins dense → moins 
 const MAX_WAKE_POINTS = 700;         // plafond global de meshes de sillage
 const WAKE_REMOTE_MAX_DIST_U = 400;  // pas de sillage pour un bateau distant au-delà (~4 km)
 let dangerZones = [];
-let boatIntegrity = 100;
+let boatIntegrity = 100; // Pourcentage HUD; les etats reseau restent en points.
+
+function integrityPercent(value, maximum) {
+    return Math.max(0, Math.min(100, 100 * value / maximum));
+}
 let damageFlashUntil = 0;
 let isSinking = false;
 let sinkTiltAxis = 1;
@@ -785,7 +922,25 @@ radarCanvas.addEventListener("click", (e) => {
     const w = radarToWorld(cx, cz, v);
     const worldX = w.x;
     const worldZ = w.z;
+    if (spectatorMode) {
+        const contact = radarFrozenBoats.find(b => {
+            if (!remoteBoats[b.id] || remoteSinking[b.id] || b.remembered) return false;
+            const p = worldToRadar(b.x, b.z, v);
+            return Math.hypot(p.x - cx, p.y - cz) < 12;
+        });
+        if (contact) followSpectatorBoat(contact.id);
+        return;
+    }
+    if (cheatTeleBotId !== null) {
+        const id = cheatTeleBotId;
+        cheatTeleBotId = null;
+        cheatMoveMode = false;
+        cheatBuffer = "";
+        socket.emit("cheat_move_bot", { id, x: worldX, z: worldZ });
+        return;
+    }
     if (cheatMoveMode && playerMesh) {
+        cheatBuffer = "";
         let onIsland = false;
         if (worldData.islands) {
             for (const isl of worldData.islands) {
@@ -880,13 +1035,7 @@ radarCanvas.addEventListener("click", (e) => {
     let bestTorpDist = Infinity;
     for (const key in remoteTorpedoes) {
         const r = remoteTorpedoes[key];
-        if (!allMapMode) {
-            const ddx = r.x - playerMesh.position.x;
-            const ddz = r.z - playerMesh.position.z;
-            if (ddx * ddx + ddz * ddz > torpedoRadarRangeUnits * torpedoRadarRangeUnits) continue;
-            if (r.ownerId !== playerId && !isLineOfSightClear(r.x, r.z, null)) continue;
-            if (r.mesh && !r.mesh.isEnabled()) continue;
-        }
+        if (!isTorpedoRadarVisible(r)) continue;
         const o = worldToRadar(r.x, r.z, v);
         const dx = o.x - cx;
         const dz = o.y - cz;
@@ -985,10 +1134,11 @@ function updateDayCycle(deltaTime) {
 
     sunLight.direction = new BABYLON.Vector3(-sunX, -sunY, -0.3);
 
-    if (playerMesh) {
-        sunMesh.position.x = playerMesh.position.x + sunX * 1500;
+    const sunOrigin = playerMesh ? playerMesh.position : spectatorMode && initialized ? scene.activeCamera.target : null;
+    if (sunOrigin) {
+        sunMesh.position.x = sunOrigin.x + sunX * 1500;
         sunMesh.position.y = sunY * 1500;
-        sunMesh.position.z = playerMesh.position.z + 500;
+        sunMesh.position.z = sunOrigin.z + 500;
     }
 
     const dayFactor = Math.max(0, sunY);
@@ -1564,6 +1714,7 @@ function createOtherPlayer(data) {
         }
     });
     otherPlayersInfo[data.id] = {
+        isBot: data.is_bot === true,
         baseNoise: (data.boat && data.boat.noise) || 0,
         minNoise: (data.boat && data.boat.minNoise) || 0,
         baseSpeed: knotsToUnitPerSecond(((data.boat && data.boat.speed) || 25) / 2),
@@ -1574,6 +1725,15 @@ function createOtherPlayer(data) {
         teamId: data.team_id || null,
         teamName: data.team_name || null,
     };
+    if (spectatorMode) {
+        if (data.sunk || data.integrity === 0) remoteSinking[data.id] = { done: true, tilt: 0, tiltAxis: 1 };
+        otherPlayersHistory[data.id] = {
+            x: data.position.x, z: data.position.z, rot: data.rotation || 0,
+            t: performance.now(), noise: 0, speedRatio: data.speedRatio || 0,
+            reverse: !!data.reverse, submerged: data.position.y < PERISCOPE_DEPTH,
+            integrity: data.integrity, maxIntegrity: data.maxIntegrity ?? boatData.integrity ?? 100,
+        };
+    }
 }
 
 
@@ -1621,6 +1781,7 @@ socket.on("connect", () => {
     // Récupère la liste des textures disponibles (utilisé par toutes les îles
     // pour reconstruire l'URL avec la bonne extension à partir du nom JSON).
     socket.emit("admin_list_textures");
+    if (new URLSearchParams(location.search).get("spectate") === "1") observeGame();
 });
 
 function showConnectionLostOverlay() {
@@ -1667,6 +1828,7 @@ socket.on("sim_speed_changed", (data) => {
 });
 
 document.addEventListener("DOMContentLoaded", () => {
+    document.getElementById("spectateBtn").addEventListener("click", observeGame);
     // Boutons bateau (sélection visuelle, ne valide pas encore).
     const bd = document.getElementById("loginBoatDest");
     if (bd) bd.addEventListener("click", () => pickBoat("destroyer"));
@@ -1697,6 +1859,7 @@ socket.on("server_full", (data) => {
 
 let botRlModels = {};
 socket.on("init", (data) => {
+    if (data.spectator === true) { initSpectator(data); return; }
     botRlModels = data.botRlModels || {};
     const _startupT0 = performance.now();
     const _startupLog = (label) => console.log(`[startup] ${label} +${(performance.now() - _startupT0).toFixed(0)}ms`);
@@ -1829,6 +1992,8 @@ socket.on("init", (data) => {
     // Multi-bateaux : enregistre l'état initial du bateau primaire dans boatAmmo.
     // Sera réutilisé lors d'un switchActiveBoat retour vers le primaire.
     boatAmmo["primary"] = {
+        integrity: data.integrity ?? (data.boat.integrity ?? 100),
+        maxIntegrity: data.maxIntegrity ?? (data.boat.integrity ?? 100),
         torpedo: { ...torpedoCounts },
         torpedoInitial: { ...torpedoInitialCounts },
         drone: { ...droneCounts },
@@ -1926,15 +2091,7 @@ socket.on("init", (data) => {
         selfControlledPlayerIds.clear();
         selfControlledPlayerIds.add(data.playerId);
 
-        const camera = new BABYLON.ArcRotateCamera("camera",
-            cameraAlpha, cameraBeta, 15, playerMesh.position, scene);
-        camera.inputs.clear();
-        scene.activeCamera = camera;
-
-        const fpv = new BABYLON.UniversalCamera("fpvCamera", playerMesh.position.clone(), scene);
-        fpv.inputs.clear();
-        fpv.minZ = 0.1;
-        scene._fpvCamera = fpv;
+        createBoatCameras(playerMesh.position);
         initialized = true;
         _startupLog("loadBoatModel done — scène prête");
     });
@@ -1952,6 +2109,17 @@ socket.on("init", (data) => {
         for (const b of data.passiveSonarBeacons) addPassiveSonarBeacon(b);
     }
 });
+
+function createBoatCameras(position) {
+    const camera = new BABYLON.ArcRotateCamera("camera",
+        cameraAlpha, cameraBeta, 15, position.clone(), scene);
+    camera.inputs.clear();
+    scene.activeCamera = camera;
+    const fpv = new BABYLON.UniversalCamera("fpvCamera", position.clone(), scene);
+    fpv.inputs.clear();
+    fpv.minZ = 0.1;
+    scene._fpvCamera = fpv;
+}
 
 function applyBoatConfig(boat, boatType, opts) {
     const o = opts || {};
@@ -2205,6 +2373,8 @@ function switchActiveBoat(toIndex) {
     // Priorité : la dernière vitesse VUE DU SERVEUR (autopilote a pu arrêter
     // le bateau de lui-même). Sinon, dernière vitesse locale mémorisée.
     const restored = boatAmmo[ak] || {};
+    boatIntegrity = integrityPercent(restored.integrity ?? (boatData.integrity ?? 100),
+                                     restored.maxIntegrity ?? (boatData.integrity ?? 100));
     if (typeof restored.lastServerSpeedRatio === "number" && maxSpeed > 0) {
         const dir = restored.lastServerReverse ? -1 : 1;
         boatSpeed = restored.lastServerSpeedRatio * maxSpeed * dir;
@@ -2227,6 +2397,7 @@ function switchActiveBoat(toIndex) {
 }
 
 function cycleActiveBoat(direction) {
+    if (spectatorMode) { cycleSpectatorBoat(direction); return; }
     if (localBoats.length <= 1) return;
     const before = activeBoatIndex;
     let target = before;
@@ -2248,6 +2419,10 @@ socket.on("boat_changed", (data) => {
         localBoat.boatType = data.boatType;
     }
     applyBoatConfig(data.boat, data.boatType, { resetIntegrity: true, resetGrace: true, resetDrones: true, resetShells: true, torpedoCounts: data.torpedoCounts, droneCounts: data.droneCounts, cannonCounts: data.cannonCounts, grenadeCount: data.grenadeCount, beaconCount: data.beaconCount, lureCount: data.lureCount });
+    const integritySlot = boatAmmo[ammoKey(activeGhostSid())] || (boatAmmo[ammoKey(activeGhostSid())] = {});
+    integritySlot.integrity = data.integrity ?? (data.boat.integrity ?? 100);
+    integritySlot.maxIntegrity = data.maxIntegrity ?? (data.boat.integrity ?? 100);
+    boatIntegrity = integrityPercent(integritySlot.integrity, integritySlot.maxIntegrity);
     playerMesh.getChildren()[0].dispose();
     loadBoatModel(data.boat.model, (mesh) => {
         mesh.rotation.y = modelRotationOffset;
@@ -2290,6 +2465,7 @@ socket.on("other_boat_changed", (data) => {
             mesh.parent = wrapper;
         });
         otherPlayersInfo[data.id] = {
+            isBot: otherPlayersInfo[data.id]?.isBot === true,
             baseNoise: (data.boat && data.boat.noise) || 0,
             minNoise: (data.boat && data.boat.minNoise) || 0,
             baseSpeed: knotsToUnitPerSecond(((data.boat && data.boat.speed) || 25) / 2),
@@ -2313,6 +2489,7 @@ socket.on("other_boat_changed", (data) => {
             // Si on observait ce bateau, mettre viewedBoat à jour vers la nouvelle instance.
             if (viewedBoat && viewedBoat.id === data.id) {
                 viewedBoat = newBoat;
+                if (spectatorMode) followSpectatorBoat(data.id);
             }
         }
     }
@@ -2337,6 +2514,8 @@ socket.on("own_boat_added", (data) => {
         suspended: ((data.boat && data.boat.mineSuspended) || {}).number || 0,
     };
     boatAmmo[data.ghostSid] = {
+        integrity: data.integrity ?? (data.boat.integrity ?? 100),
+        maxIntegrity: data.maxIntegrity ?? (data.boat.integrity ?? 100),
         boat: data.boat,
         boatType: data.boatType,
         torpedo: data.torpedoCounts || {},
@@ -2382,11 +2561,13 @@ socket.on("player_left", (data) => {
         otherPlayers[data.id].dispose();
         delete otherPlayers[data.id];
     }
+    if (spectatorMode && viewedBoat?.id === data.id) cycleSpectatorBoat();
     delete otherPlayersHistory[data.id];
     delete otherPlayersInfo[data.id];
     delete moveArrivalDiag[data.id];
     delete wrapperFrameDeltas[data.id];
     delete sonarRevealedUntil[data.id];
+    delete sonarObservedBoats[data.id];
     delete passiveSonarDetectionsUntil[data.id];
     delete droneDiscoveredEnemies[data.id];
     if (window._botSpeedMult) delete window._botSpeedMult[data.id];
@@ -2502,6 +2683,7 @@ socket.on("player_moved", (data) => {
             reverse: !!data.reverse,
             integrity: typeof data.integrity === "number" ? data.integrity
                        : (prevHist && prevHist.integrity),
+            maxIntegrity: data.maxIntegrity ?? (prevHist && prevHist.maxIntegrity) ?? 100,
             submerged: !!data.submerged,
         };
         return;
@@ -2540,7 +2722,7 @@ socket.on("player_moved", (data) => {
             // Marche arrière : même bruit que la marche avant (plus de bonus ×4).
             noise *= turnFactor;
         }
-        otherPlayersHistory[data.id] = { x: data.position.x, z: data.position.z, rot: data.rotation, t: now, noise, speedRatio, reverse: !!data.reverse, integrity: typeof data.integrity === "number" ? data.integrity : (otherPlayersHistory[data.id] && otherPlayersHistory[data.id].integrity), submerged: !!data.submerged };
+        otherPlayersHistory[data.id] = { x: data.position.x, z: data.position.z, rot: data.rotation, t: now, noise, speedRatio, reverse: !!data.reverse, integrity: typeof data.integrity === "number" ? data.integrity : (otherPlayersHistory[data.id] && otherPlayersHistory[data.id].integrity), maxIntegrity: data.maxIntegrity ?? (prev && prev.maxIntegrity) ?? 100, submerged: !!data.submerged };
         wrapper.targetX = data.position.x;
         wrapper.targetZ = data.position.z;
         wrapper.targetY = data.position.y || 0;
@@ -2656,7 +2838,7 @@ socket.on("grenade_exploded", (data) => {
         const g = grenades[i];
         if (g.shooterId === data.id && g.gid === data.gid && g.phase !== "explode") {
             const dealt = data.dealt || 0;
-            const msg = dealt > 0 ? "explosion : -" + Math.round(dealt) + "%" : "explosion : raté";
+            const msg = dealt > 0 ? "explosion : -" + Math.round(dealt) + " pts" : "explosion : raté";
             if (g._hudId) removeGrenadeHud(g, msg);
             if (g.mesh) { g.mesh.dispose(false, true); g.mesh = null; }
             grenades.splice(i, 1);
@@ -2664,7 +2846,6 @@ socket.on("grenade_exploded", (data) => {
         }
     }
     spawnRemoteExplosion(data.x, data.y, data.z, false);
-    destroyLuresNearExplosion(data.x, data.z);
     triggerDamageFlash(data.x, data.y, data.z);
 });
 
@@ -2996,6 +3177,7 @@ function enterBotView(botId, botBoat, botBoatType) {
 }
 
 function exitBotView() {
+    if (spectatorMode) { followSpectatorBoat(); return; }
     viewedBoat = localBoat;
     if (originalBoatData && originalBoatType) {
         applyBoatConfig(originalBoatData, originalBoatType, {});
@@ -3159,7 +3341,16 @@ socket.on("cheat_godmode_state", (data) => {
 
 socket.on("lure_dropped", (data) => {
     const expiresAt = performance.now() + (data.durationMs || 0);
+    if (spectatorMode) {
+        const previous = acousticLures[data.ownerId + ":" + data.lid];
+        if (previous && previous.mesh) previous.mesh.dispose(false, true);
+    }
     spawnAcousticLureVisual(data.ownerId, data.lid, data.x, data.y, data.z, data.noise || 0, expiresAt);
+    const lure = acousticLures[data.ownerId + ":" + data.lid];
+    if (lure) {
+    lure.integrity = data.integrity ?? 10;
+    lure.maxIntegrity = data.maxIntegrity ?? 10;
+    }
     const lureId = "lure_" + data.ownerId + ":" + data.lid;
     if (!otherPlayers[lureId]) {
         const node = new BABYLON.TransformNode("other_" + lureId, scene);
@@ -3182,8 +3373,21 @@ socket.on("lure_dropped", (data) => {
         speedRatio: 1,
         reverse: false,
         submerged: true,
-        integrity: 100,
+        integrity: data.integrity ?? 10,
+        maxIntegrity: data.maxIntegrity ?? 10,
     };
+});
+
+socket.on("lure_integrity", (data) => {
+    const key = data.ownerId + ":" + data.lid;
+    const lure = acousticLures[key];
+    const hist = otherPlayersHistory["lure_" + key];
+    for (const state of [lure, hist]) {
+        if (state) {
+            state.integrity = data.integrity;
+            state.maxIntegrity = data.maxIntegrity;
+        }
+    }
 });
 
 socket.on("lure_destroyed", (data) => {
@@ -3202,7 +3406,6 @@ socket.on("lure_destroyed", (data) => {
 
 socket.on("torpedo_exploded", (data) => {
     spawnRemoteExplosion(data.x, data.y, data.z, false);
-    destroyLuresNearExplosion(data.x, data.z);
     if (data.directHitId && data.directHitId === playerId) {
         damageFlashUntil = performance.now() + 700;
         return;
@@ -3213,7 +3416,8 @@ socket.on("torpedo_exploded", (data) => {
 socket.on("sonar_pinged", (data) => {
     if (!playerMesh) return;
     const now = performance.now();
-    const revealRange = typeof data.reveal === "number" ? data.reveal : null;
+    const revealRange = typeof data.reveal === "number" ? metersToUnits(data.reveal) : null;
+    const range = typeof data.range === "number" ? metersToUnits(data.range) : null;
     // Les pings de balise (id "beacon:...") sont rendus visuellement par
     // l'event `sonar_beacon_ping` (cercle qui respecte la portée). Ici on ne
     // pousse PAS de cercle (sinon doublon map-wide : `range` est en mètres et
@@ -3229,7 +3433,7 @@ socket.on("sonar_pinged", (data) => {
             expiresAt: now + SONAR_REVEAL_DURATION,
             coneDeg: typeof data.coneDeg === "number" ? data.coneDeg : 360,
             rotation: typeof data.rotation === "number" ? data.rotation : 0,
-            range: typeof data.range === "number" ? data.range : null,
+            range,
             reveal: revealRange,
         });
     }
@@ -3237,7 +3441,7 @@ socket.on("sonar_pinged", (data) => {
         const dx = playerMesh.position.x - data.x;
         const dz = playerMesh.position.z - data.z;
         const dist = Math.hypot(dx, dz);
-        const pingRange = typeof data.range === "number" ? data.range / UNIT_METERS : (revealRange ? revealRange / UNIT_METERS : Infinity);
+        const pingRange = range ?? revealRange ?? Infinity;
         if (dist <= pingRange) {
             const coneDeg = typeof data.coneDeg === "number" ? data.coneDeg : 360;
             let inCone = true;
@@ -3248,7 +3452,7 @@ socket.on("sonar_pinged", (data) => {
                 const dot = (dx * fwdX + dz * fwdZ) / dist;
                 inCone = dot >= Math.cos(coneDeg * Math.PI / 360);
             }
-            if (inCone) {
+            if (inCone && isLineOfSightClearBetween(data.x, data.z, playerMesh.position.x, playerMesh.position.z, null)) {
                 const pingerY = typeof data.y === "number" ? data.y : 0;
                 const thermo = countThermoclinesCrossed(data.x, pingerY, data.z,
                     playerMesh.position.x, playerMesh.position.y, playerMesh.position.z);
@@ -3374,11 +3578,17 @@ socket.on("cannon_hit", (data) => {
 // uniquement pour signaler le tireur (utilisé par revealShooterFromFire ailleurs).
 
 socket.on("cannon_fire", (data) => {
-    spawnCannonTracer(data.kind, data.startX, data.startY, data.startZ, data.endX, data.endY, data.endZ, data.arcHeight, data.duration);
-    if (data.impact) {
-        setTimeout(() => spawnCannonImpactVisual(data.endX, data.endY, data.endZ), data.duration);
-    }
+    spawnCannonTracer(data.kind, data.startX, data.startY, data.startZ, data.endX, data.endY, data.endZ, data.arcHeight, data.duration, data.shotId);
     revealShooterFromFire(data.shooterId);
+});
+
+socket.on("cannon_impact", (data) => {
+    const i = cannonTracers.findIndex(t => t.type === "shell" && t.shotId === data.shotId);
+    if (i >= 0) {
+        cannonTracers[i].mesh.dispose(false, true);
+        cannonTracers.splice(i, 1);
+    }
+    spawnCannonImpactVisual(data.x, data.y, data.z);
 });
 
 socket.on("cannon_counts", (counts) => {
@@ -3433,22 +3643,49 @@ socket.on("integrity", (data) => {
     // Multi-bateaux : on stocke l'intégrité par bateau dans boatAmmo[ak].integrity.
     const ak = ammoKey(data.bsid);
     const slot = boatAmmo[ak] || (boatAmmo[ak] = {});
-    const prev = typeof slot.integrity === "number" ? slot.integrity : 100;
+    const maximum = data.maxIntegrity ?? slot.maxIntegrity ?? 100;
+    const prev = typeof slot.integrity === "number" ? slot.integrity : maximum;
     slot.integrity = data.value;
+    slot.maxIntegrity = maximum;
     // Flash rouge + UI : seulement si c'est le bateau actif.
     if (ak === ammoKey(activeGhostSid())) {
-        if (data.value < boatIntegrity - 0.001) {
+        if (data.value < prev - 0.001) {
             damageFlashUntil = performance.now() + 700;
         }
-        boatIntegrity = data.value;
+        boatIntegrity = integrityPercent(data.value, maximum);
     } else if (data.value < prev - 0.001) {
         // Bateau non actif qui prend des dégâts : message discret.
         setTransientMessage("Un de vos bateaux subit des dégâts");
     }
 });
 
+socket.on("cheat_move_bot_result", (data) => {
+    setTransientMessage(data.message);
+});
+
 window.addEventListener("keydown", (e) => {
     if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+    if (spectatorMode) {
+        if (e.key === "Tab") { e.preventDefault(); cycleActiveBoat(e.shiftKey ? -1 : 1); }
+        if (e.key.length === 1) {
+            cheatBuffer = (cheatBuffer + e.key.toLowerCase()).slice(-7);
+            if (cheatBuffer.endsWith("movebot")) cycleSpectatorBoat();
+            if (cheatBuffer.endsWith("allmap")) {
+                allMapMode = !allMapMode;
+                radarFrozenBoats = [];
+                for (const id of Object.keys(sonarObservedBoats)) delete sonarObservedBoats[id];
+                setTransientMessage(allMapMode ? "Carte complete (diagnostic)" : "Capteurs du bateau observe");
+            }
+        }
+        return;
+    }
+    if (e.key === "Escape" && (cheatMoveMode || cheatTeleBotId !== null)) {
+        cheatMoveMode = false;
+        cheatTeleBotId = null;
+        cheatBuffer = "";
+        setTransientMessage("Téléport annulé");
+        return;
+    }
     if (e.key === "Escape" && (aimingTorpedoKind || grenadeAiming)) {
         cancelAim();
         return;
@@ -3485,8 +3722,24 @@ window.addEventListener("keydown", (e) => {
     if (e.key.length === 1) {
         cheatBuffer = (cheatBuffer + e.key.toLowerCase()).slice(-20);
     }
-    if (cheatBuffer.endsWith("move")) {
+    if (cheatBuffer.endsWith("telebot")) {
         cheatBuffer = "";
+        cheatMoveMode = false;
+        cheatTeleBotId = null;
+        if (!selectedBoatId || !otherPlayersInfo[selectedBoatId]?.isBot
+            || remoteSinking[selectedBoatId] || selectedTorpedoKey || selectedDroneKey
+            || selectedBeaconBid != null || selectedLocalDroneDid != null || selectedMineKey != null) {
+            setTransientMessage("telebot : sélectionnez un bot vivant (allié ou ennemi)");
+        } else {
+            cancelAim();
+            cheatTeleBotId = selectedBoatId;
+            setTransientMessage(`Bot ${cheatTeleBotId} : cliquez sur la map (Échap pour annuler)`);
+        }
+    }
+    // movebot utilise la vue bot ci-dessous, sans laisser le placement move actif.
+    if (cheatBuffer.endsWith("moveb")) cheatMoveMode = false;
+    if (cheatBuffer.endsWith("move") && e.key.toLowerCase() === "e") {
+        cheatTeleBotId = null;
         cheatMoveMode = !cheatMoveMode;
         setTransientMessage(cheatMoveMode ? "Mode téléport : cliquez sur la map" : "Mode téléport désactivé");
     }
@@ -3792,6 +4045,7 @@ const SONAR_COOLDOWN = 3000;
 let lastSonarPing = 0;
 
 function _autoGrenadeDepthFromSonar(id) {
+    if (spectatorMode) return;
     if (currentBoatType !== "destroyer") return;
     const p = otherPlayers[id];
     if (!p) return;
@@ -3821,53 +4075,33 @@ function getIslandBounds(idx) {
     return b;
 }
 
-function segmentIntersectsAABB(ox, oz, tx, tz, b) {
-    let t0 = 0, t1 = 1;
-    const dx = tx - ox, dz = tz - oz;
-    const p = [-dx, dx, -dz, dz];
-    const q = [ox - b.minX, b.maxX - ox, oz - b.minZ, b.maxZ - oz];
-    for (let i = 0; i < 4; i++) {
-        if (p[i] === 0) {
-            if (q[i] < 0) return false;
-        } else {
-            const r = q[i] / p[i];
-            if (p[i] < 0) {
-                if (r > t1) return false;
-                if (r > t0) t0 = r;
-            } else {
-                if (r < t0) return false;
-                if (r < t1) t1 = r;
-            }
+function isLineOfSightClearBetween(ox, oz, tx, tz, excludeIslandName) {
+    if (!worldData || !worldData.islands) return true;
+    for (let idx = 0; idx < worldData.islands.length; idx++) {
+        if (excludeIslandName && excludeIslandName === ("island_" + idx)) continue;
+        const b = getIslandBounds(idx);
+        if (b.maxX < Math.min(ox, tx) || b.minX > Math.max(ox, tx)
+                || b.maxZ < Math.min(oz, tz) || b.minZ > Math.max(oz, tz)) continue;
+        const points = worldData.islands[idx].points;
+        if (pointInPolygon(ox, oz, points) || pointInPolygon(tx, tz, points)) return false;
+        for (let i = 0; i < points.length; i++) {
+            const a = points[i], c = points[(i + 1) % points.length];
+            if (segmentsIntersectClosed(ox, oz, tx, tz, a.x, a.z, c.x, c.z)) return false;
         }
     }
     return true;
 }
 
-function isLineOfSightClearBetween(ox, oz, tx, tz, excludeIslandName) {
-    if (!worldData || !worldData.islands) return true;
-    const dx = tx - ox;
-    const dz = tz - oz;
-    const dist = Math.sqrt(dx * dx + dz * dz);
-    if (dist < 0.01) return true;
-    const candidates = [];
-    for (let idx = 0; idx < worldData.islands.length; idx++) {
-        if (excludeIslandName && excludeIslandName === ("island_" + idx)) continue;
-        if (segmentIntersectsAABB(ox, oz, tx, tz, getIslandBounds(idx))) {
-            candidates.push(idx);
-        }
-    }
-    if (candidates.length === 0) return true;
-    const STEP = 5;
-    const steps = Math.max(2, Math.ceil(dist / STEP));
-    for (let i = 1; i < steps; i++) {
-        const t = i / steps;
-        const x = ox + dx * t;
-        const z = oz + dz * t;
-        for (const idx of candidates) {
-            if (pointInPolygon(x, z, worldData.islands[idx].points)) return false;
-        }
-    }
-    return true;
+// Segment ferme : tangence, extremites et recouvrement collineaire inclus, sans marge.
+function segmentsIntersectClosed(ax, az, bx, bz, cx, cz, dx, dz) {
+    if (Math.max(ax, bx) < Math.min(cx, dx) || Math.max(cx, dx) < Math.min(ax, bx)
+            || Math.max(az, bz) < Math.min(cz, dz) || Math.max(cz, dz) < Math.min(az, bz)) return false;
+    const orient = (x1, z1, x2, z2, x3, z3) =>
+        (x2 - x1) * (z3 - z1) - (z2 - z1) * (x3 - x1);
+    const o1 = orient(ax, az, bx, bz, cx, cz), o2 = orient(ax, az, bx, bz, dx, dz);
+    const o3 = orient(cx, cz, dx, dz, ax, az), o4 = orient(cx, cz, dx, dz, bx, bz);
+    return ((o1 <= 0 && o2 >= 0) || (o2 <= 0 && o1 >= 0))
+        && ((o3 <= 0 && o4 >= 0) || (o4 <= 0 && o3 >= 0));
 }
 
 function isLineOfSightClear(targetX, targetZ, excludeIslandName) {
@@ -3906,6 +4140,7 @@ const THERMOCLINE_NOISE_FACTOR = 0.2; // -80% par couche traversée
 
 let radarFrozenBoats = [];
 const sonarRevealedUntil = {};
+const sonarObservedBoats = {};
 const _sonarNewDetections = [];
 // Persistance de la révélation sonar des mines (key = ownerId:mid).
 const mineRevealedUntil = {};
@@ -3917,6 +4152,8 @@ let selectedTorpedoKey = null;
 // Tous les observateurs de mon équipe : moi (en local) + chaque coéquipier
 // (depuis otherPlayers). Exclut les bateaux coulés / hors carte.
 function alliedObservers() {
+    const localTeamId = sensorTeamId();
+    const playerId = sensorPlayerId();
     const obs = [];
     if (playerMesh) {
         obs.push({
@@ -3944,6 +4181,8 @@ function alliedObservers() {
 
 // Tous les drones amis : les miens (activeDrones) + ceux d'un coéquipier.
 function alliedDrones() {
+    const localTeamId = sensorTeamId();
+    const playerId = sensorPlayerId();
     const drones = [];
     for (const d of activeDrones) drones.push(d);
     if (!localTeamId) return drones;
@@ -3979,7 +4218,10 @@ function isLOSClearFromAnyAlly(targetX, targetZ, targetY) {
     return false;
 }
 
-function renderRadar() {
+function renderRadar(observerPosition = null) {
+    const localTeamId = sensorTeamId();
+    const playerId = sensorPlayerId();
+    const viewPosition = observerPosition || (playerMesh && playerMesh.position);
     const now = performance.now();
     for (let i = activePings.length - 1; i >= 0; i--) {
         const pp = activePings[i];
@@ -3996,8 +4238,8 @@ function renderRadar() {
     for (const key in mineRevealedUntil) {
         if (mineRevealedUntil[key] <= now) delete mineRevealedUntil[key];
     }
-    if (!radarVisible || !worldData || !playerMesh) return;
-    const radarFrozen = currentBoatType === "submarine" && playerMesh.position.y < PERISCOPE_DEPTH;
+    if (!radarVisible || !worldData || !viewPosition) return;
+    const radarFrozen = currentBoatType === "submarine" && viewPosition.y < PERISCOPE_DEPTH;
     const ctx = radarCtx;
     const w = radarCanvas.width;
     const h = radarCanvas.height;
@@ -4174,25 +4416,36 @@ function renderRadar() {
             });
         }
         if (ping.emitterId !== playerId) {
-            const dx = ping.x - playerMesh.position.x;
-            const dz = ping.z - playerMesh.position.z;
+            const dx = ping.x - viewPosition.x;
+            const dz = ping.z - viewPosition.z;
             const dist = Math.sqrt(dx * dx + dz * dz);
             if (dist <= frontDist && dist <= pReveal && isLineOfSightClear(ping.x, ping.z, null)) {
                 if (!ping.emitterRevealedUntil) {
                     ping.emitterRevealedUntil = now + 5000;
                     sonarRevealedUntil[ping.emitterId] = now + 5000;
+                    sonarObservedBoats[ping.emitterId] = {
+                        id: ping.emitterId, x: ping.x, y: ping.y || 0, z: ping.z, sonar: true, pinged: true,
+                    };
                 }
             }
         }
     }
+    const revealObservers = alliedObservers();
+    for (const id in sonarObservedBoats) {
+        if (!otherPlayers[id] || !(sonarRevealedUntil[id] > now || passiveSonarDetectionsUntil[id] > now)) {
+            delete sonarObservedBoats[id];
+        }
+    }
     for (const id in sonarRevealedUntil) {
         if (sonarRevealedUntil[id] <= now) delete sonarRevealedUntil[id];
-        else revealed.add(id);
+        else if (otherPlayers[id] && revealObservers.some(o => isLineOfSightClearBetween(
+            o.x, o.z, otherPlayers[id].position.x, otherPlayers[id].position.z, null))) revealed.add(id);
     }
     // Détections via balises sonar passives (uniquement coéquipier de l'owner).
     for (const id in passiveSonarDetectionsUntil) {
         if (passiveSonarDetectionsUntil[id] <= now) delete passiveSonarDetectionsUntil[id];
-        else revealed.add(id);
+        else if (otherPlayers[id] && revealObservers.some(o => isLineOfSightClearBetween(
+            o.x, o.z, otherPlayers[id].position.x, otherPlayers[id].position.z, null))) revealed.add(id);
     }
     // Note : la révélation permanente des mines par sonar (bateau ou balise)
     // est gérée côté serveur via mine_revealed. Cette boucle locale n'a plus
@@ -4282,7 +4535,7 @@ function renderRadar() {
             const info = otherPlayersInfo[id];
             return info && info.boatType === "submarine";
         });
-        if (subs.length === 1) {
+        if (!spectatorMode && subs.length === 1) {
             selectedBoatId = subs[0];
             selectedBoatIsSonar = true;
         }
@@ -4379,7 +4632,7 @@ function renderRadar() {
             const isAlly = !!(localTeamId && info && info.teamId === localTeamId);
             if (revealed.has(id)) {
                 const pinged = !!sonarRevealedUntil[id];
-                radarFrozenBoats.push({ id, x: p.position.x, z: p.position.z, y: p.position.y, sonar: true, pinged, ally: isAlly });
+                radarFrozenBoats.push({ id, x: p.position.x, z: p.position.z, y: p.position.y, sonar: true, pinged, sonarTransient: true, ally: isAlly });
                 continue;
             }
             if (isSubmerged) continue;
@@ -4407,21 +4660,33 @@ function renderRadar() {
             radarFrozenBoats.push({ id, x: p.position.x, z: p.position.z, y: p.position.y, sonar: true, pinged, sonarTransient: true, ally: isAlly });
         }
     }
+    // Un delai de revelation conserve un point, pas un acces aux coordonnees cachees.
+    for (const b of radarFrozenBoats) {
+        if (revealed.has(b.id) && (sonarRevealedUntil[b.id] > now || passiveSonarDetectionsUntil[b.id] > now)) {
+            sonarObservedBoats[b.id] = { ...b };
+        }
+    }
+    for (const id in sonarObservedBoats) {
+        if (!radarFrozenBoats.some(b => b.id === id)) {
+            radarFrozenBoats.push({ ...sonarObservedBoats[id], remembered: true, sonarTransient: true });
+        }
+    }
     if (selectedBoatId) {
         let cur = radarFrozenBoats.find(b => b.id === selectedBoatId);
         if (!cur) {
             const selW = otherPlayers[selectedBoatId];
             const selfY = playerMesh ? playerMesh.position.y : 0;
-            if (selW && selW.isEnabled() && (selfY < PERISCOPE_DEPTH || zoomLowMode)) {
+            if (selW && selW.isEnabled() && isLineOfSightClear(selW.position.x, selW.position.z, null)
+                && (selfY < PERISCOPE_DEPTH || zoomLowMode)) {
                 cur = { id: selectedBoatId, x: selW.position.x, z: selW.position.z, y: selW.position.y, sonar: false, visual: true };
                 radarFrozenBoats.push(cur);
             } else {
                 selectedBoatId = null;
                 selectedBoatIsSonar = false;
             }
-        } else if (cur.visual || cur.sonar) {
+        } else if (cur.visual) {
             const selW = otherPlayers[selectedBoatId];
-            if (selW) {
+            if (selW && selW.isEnabled() && isLineOfSightClear(selW.position.x, selW.position.z, null)) {
                 cur.x = selW.position.x;
                 cur.z = selW.position.z;
                 cur.y = selW.position.y;
@@ -4429,7 +4694,7 @@ function renderRadar() {
         }
         if (cur) selectedBoatIsSonar = !!cur.sonar;
     }
-    const playerProj = proj(playerMesh.position.x, playerMesh.position.z);
+    const playerProj = proj(viewPosition.x, viewPosition.z);
     const px = playerProj.x;
     const pz = playerProj.y;
 
@@ -4440,7 +4705,7 @@ function renderRadar() {
         // - ou le front m'a déjà atteint (ping.emitterRevealedUntil set)
         const isMine = ping.emitterId === playerId;
         const reachedMe = !!ping.emitterRevealedUntil;
-        if (!isMine && !ping.beacon && !reachedMe) continue;
+        if (!(spectatorMode && allMapMode) && !isMine && !ping.beacon && !reachedMe) continue;
         const elapsed = now - ping.emittedAt;
         const progress = Math.min(1, elapsed / SONAR_REVEAL_DURATION);
         const cp = proj(ping.x, ping.z);
@@ -4477,13 +4742,7 @@ function renderRadar() {
     ctx.fillStyle = "#ff3333";
     for (const key in remoteTorpedoes) {
         const r = remoteTorpedoes[key];
-        const ddx = r.x - playerMesh.position.x;
-        const ddz = r.z - playerMesh.position.z;
-        if (!allMapMode && ddx * ddx + ddz * ddz > torpedoRadarRangeUnits * torpedoRadarRangeUnits) continue;
-        // Les torpilles ennemies ne sont visibles que si LOS clear depuis le joueur (sauf en fullmap).
-        if (!allMapMode && r.ownerId !== playerId && !isLineOfSightClear(r.x, r.z, null)) continue;
-        // Thermocline : si la torpille est masquée en 3D, elle l'est aussi sur le radar.
-        if (!allMapMode && r.mesh && !r.mesh.isEnabled()) continue;
+        if (!isTorpedoRadarVisible(r)) continue;
         const tp = proj(r.x, r.z);
         const yawWorld = Math.atan2(r.dirX, r.dirZ);
         const dirLen = 10;
@@ -4517,7 +4776,7 @@ function renderRadar() {
     }
 
 
-    const subSubmerged = currentBoatType === "submarine" && playerMesh.position.y < PERISCOPE_DEPTH;
+    const subSubmerged = currentBoatType === "submarine" && viewPosition.y < PERISCOPE_DEPTH;
     if (!subSubmerged) {
         for (const d of activeDrones) {
             const dRangeM = d.rangeMeters || (d.kind === "manual" ? 2000 : 3000);
@@ -4556,9 +4815,9 @@ function renderRadar() {
         const droneRadarMax2 = droneRadarMax * droneRadarMax;
         for (const key in remoteDrones) {
             const r = remoteDrones[key];
-            const ddx = r.x - playerMesh.position.x;
-            const ddz = r.z - playerMesh.position.z;
-            if (ddx * ddx + ddz * ddz > droneRadarMax2) continue;
+            const ddx = r.x - viewPosition.x;
+            const ddz = r.z - viewPosition.z;
+        if (!(spectatorMode && allMapMode) && ddx * ddx + ddz * ddz > droneRadarMax2) continue;
             if (!isLineOfSightClear(r.x, r.z, null)) continue;
             const rp = proj(r.x, r.z);
             ctx.fillStyle = "#66ccff";
@@ -4589,21 +4848,22 @@ function renderRadar() {
         ctx.fill();
     }
 
-    ctx.fillStyle = "#00ff00";
-    ctx.beginPath();
-    ctx.arc(px, pz, 4, 0, Math.PI * 2);
-    ctx.fill();
-
-    const dirLen = 10;
-    const dx = px + Math.cos(playerRotation) * dirLen;
-    const dz = pz + Math.sin(playerRotation) * dirLen;
-    // Trait de cap de MON bateau en blanc, pour le distinguer des coéquipiers (vert).
-    ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(px, pz);
-    ctx.lineTo(dx, dz);
-    ctx.stroke();
+    if (playerMesh) {
+        ctx.fillStyle = "#00ff00";
+        ctx.beginPath();
+        ctx.arc(px, pz, 4, 0, Math.PI * 2);
+        ctx.fill();
+        const dirLen = 10;
+        const dx = px + Math.cos(playerRotation) * dirLen;
+        const dz = pz + Math.sin(playerRotation) * dirLen;
+        // Trait de cap de MON bateau en blanc.
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(px, pz);
+        ctx.lineTo(dx, dz);
+        ctx.stroke();
+    }
 
     for (const b of radarFrozenBoats) {
         const boatColor = b.ally ? "#00ff00" : "#ff8800";
@@ -4771,6 +5031,7 @@ function renderRadar() {
 }
 
 function updateRadarTooltip(v) {
+    if (spectatorMode) return;
     let tip = document.getElementById("radarTooltip");
     if (!tip) {
         tip = document.createElement("div");
@@ -4782,7 +5043,7 @@ function updateRadarTooltip(v) {
     if (selectedTorpedoKey && selectedTorpedoKey.startsWith("remote:")) {
         const key = selectedTorpedoKey.slice("remote:".length);
         const r = remoteTorpedoes[key];
-        if (r) {
+        if (r && isTorpedoRadarVisible(r)) {
             const ddx = r.x - playerMesh.position.x;
             const ddz = r.z - playerMesh.position.z;
             const distKm = (Math.sqrt(ddx * ddx + ddz * ddz) * UNIT_METERS / 1000).toFixed(1);
@@ -4793,12 +5054,15 @@ function updateRadarTooltip(v) {
                 : "Torpille";
             const isOwn = r.ownerId === playerId;
             const ownerLabel = isOwn ? "La mienne" : "Ennemie";
-            const acquired = typeof r.tx === "number" && typeof r.tz === "number";
-            const stateLabel = acquired ? "en acquisition" : "non activée";
+            const hasReference = typeof r.tx === "number" && typeof r.tz === "number";
+            const referenceLabel = hasReference
+                ? (Math.hypot(r.tx - r.x, typeof r.ty === "number" ? r.ty - (r.y || 0) : 0,
+                    r.tz - r.z) * UNIT_METERS / 1000).toFixed(2) + " km"
+                : "indisponible";
             const lines = [kindLabel, ownerLabel,
                 "Dist: " + distKm + " km",
                 "Prof: -" + depthM + " m",
-                "État: " + stateLabel];
+                "Point de référence: " + referenceLabel];
             target = { x: r.x, z: r.z, text: lines.join("\n") };
         } else {
             selectedTorpedoKey = null;
@@ -5035,7 +5299,7 @@ function updateWeaponsUI() {
     const zlbtn = document.getElementById("zoomLowBtn");
     if (zlbtn) zlbtn.style.display = (has && currentBoatType === "destroyer") ? "block" : "none";
     const bbtn = document.getElementById("botsBtn");
-    if (bbtn) bbtn.style.display = has ? "block" : "none";
+    if (bbtn) bbtn.style.display = has || spectatorMode ? "block" : "none";
     repositionLeftUI();
 }
 
@@ -5082,14 +5346,17 @@ function fireTorpedo(kind) {
         socket.emit("torpedo_fire", withBsid({ kind, fixedTarget: { x: b.x, z: b.z, beaconBid: b.bid }, activationMeters }));
         return;
     }
-    if (selectedBoatId && otherPlayers[selectedBoatId]) {
-        const w = otherPlayers[selectedBoatId];
-        if (outOfRange(w.position.x, w.position.z)) {
+    if (selectedBoatId) {
+        const target = selectedBoatContact();
+        if (!target) return;
+        if (outOfRange(target.x, target.z)) {
             setTransientMessage("Cible hors de portée (" + Math.round(maxRangeM / 1000) + " km max)");
             return;
         }
-        if (selectedBoatId.startsWith("lure_")) {
-            socket.emit("torpedo_fire", withBsid({ kind, fixedTarget: { x: w.position.x, z: w.position.z }, activationMeters }));
+        const w = otherPlayers[selectedBoatId];
+        if (selectedBoatId.startsWith("lure_") || target.remembered || !w
+            || !isLineOfSightClear(w.position.x, w.position.z, null)) {
+            socket.emit("torpedo_fire", withBsid({ kind, fixedTarget: { x: target.x, z: target.z }, activationMeters }));
         } else {
             socket.emit("torpedo_fire", withBsid({ kind, targetId: selectedBoatId, activationMeters }));
         }
@@ -5099,7 +5366,7 @@ function fireTorpedo(kind) {
     if (selectedTorpedoKey && selectedTorpedoKey.startsWith("remote:")) {
         const tkey = selectedTorpedoKey.slice(7);
         const t = remoteTorpedoes[tkey];
-        if (t) {
+        if (t && isTorpedoRadarVisible(t)) {
             if (outOfRange(t.x, t.z)) {
                 setTransientMessage("Cible hors de portée (" + Math.round(maxRangeM / 1000) + " km max)");
                 return;
@@ -5107,9 +5374,17 @@ function fireTorpedo(kind) {
             socket.emit("torpedo_fire", withBsid({ kind, fixedTarget: { x: t.x, z: t.z }, antiTorpedo: true, activationMeters }));
             return;
         }
+        selectedTorpedoKey = null;
+        return;
     }
-    // Aucune cible sélectionnée : on entre en mode visée, le clic suivant sur
-    // le radar fournira la position de tir (fixedTarget).
+    // Deuxieme clic : tir droit devant, sans point de guidage invente.
+    if (aimingTorpedoKind === kind) {
+        cancelAim();
+        socket.emit("torpedo_fire", withBsid({ kind, activationMeters }));
+        setTransientMessage("Tir dans l'axe du bateau, sans cible acquise");
+        return;
+    }
+    // Le clic radar conserve la visee manuelle sur point fixe.
     aimingTorpedoKind = kind;
     showAimBanner(true);
 }
@@ -5120,7 +5395,7 @@ function showAimBanner(show) {
         banner = document.createElement("div");
         banner.id = "aimBanner";
         banner.style.cssText = "position:absolute;top:60px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.75);color:#ffaa00;padding:8px 16px;border-radius:5px;font-family:monospace;font-size:14px;z-index:20";
-        banner.textContent = "Cliquez sur le radar pour cibler — ESC pour annuler";
+        banner.textContent = "Radar : point de reference ; recliquez sur la torpille : tir dans l'axe, sans cible ; ESC : annuler";
         document.body.appendChild(banner);
     } else if (!show && banner) {
         banner.remove();
@@ -5137,24 +5412,6 @@ function cancelAim() {
    de tir (`torpedo_fire`) et un steering (`torpedo_steer`) pour la filoguidée.
    Toutes les torpilles (y compris les miennes) sont rendues via `remoteTorpedoes`
    sur réception de `torpedo_state`. */
-
-function destroyLuresNearExplosion(ex, ez) {
-    const r2 = grenadeEffectDistance * grenadeEffectDistance;
-    for (const key in acousticLures) {
-        const lure = acousticLures[key];
-        const dx = lure.x - ex;
-        const dz = lure.z - ez;
-        if (dx * dx + dz * dz <= r2) {
-            if (lure.mesh) lure.mesh.dispose(false, true);
-            delete acousticLures[key];
-            const lureId = "lure_" + key;
-            if (otherPlayers[lureId]) { otherPlayers[lureId].dispose(); delete otherPlayers[lureId]; }
-            delete otherPlayersInfo[lureId];
-            delete otherPlayersHistory[lureId];
-            if (selectedBoatId === lureId) { selectedBoatId = null; selectedBoatIsSonar = false; }
-        }
-    }
-}
 
 function updateTorpedoes(dt) {
     updateRemoteTorpedoes(dt);
@@ -5208,11 +5465,11 @@ function disposeTorpedoTrailPoint(point) {
     torpedoTrailPointCount = Math.max(0, torpedoTrailPointCount - 1);
 }
 
-function addTorpedoTrail(t) {
+function addTorpedoTrail(t, visible) {
     if (!t.trail) t.trail = [];
     const now = performance.now();
     // Points plus rapprochés (50 ms) → ligne plus continue et plus visible.
-    if (!t.lastTrail || now - t.lastTrail > 50) {
+    if (visible && (!t.lastTrail || now - t.lastTrail > 50)) {
         t.lastTrail = now;
         // Garde-fou : recycle le plus ancien point si on dépasse le plafond
         // (évite l'accumulation de meshes lors d'un combat à nombreuses torpilles).
@@ -5269,15 +5526,10 @@ function updateRemoteTorpedoes(dt) {
         r.z += (r.srvZ - r.z) * f;
         r.mesh.position.set(r.x, r.y, r.z);
         r.mesh.rotation.y = -Math.atan2(r.dirZ, r.dirX);
-        let torpVisible = true;
-        if (playerMesh) {
-            if (countThermoclinesCrossed(playerMesh.position.x, playerMesh.position.y, playerMesh.position.z,
-                                         r.x, r.y, r.z) > 0) {
-                torpVisible = false;
-            }
-        }
+        const torpVisible = isTorpedoRadarVisible(r);
         r.mesh.setEnabled(torpVisible);
-        if (torpVisible) addTorpedoTrail(r);
+        if (!torpVisible && selectedTorpedoKey === "remote:" + key) selectedTorpedoKey = null;
+        addTorpedoTrail(r, torpVisible);
     }
 }
 
@@ -5387,9 +5639,10 @@ function addSonarBeacon(b) {
 }
 
 function isSonarBeaconVisibleOnRadar(b) {
+    const teamId = spectatorMode ? sensorTeamId() : selectedTeamId;
     if (!b) return false;
     if (allMapMode) return true;
-    if (b.teamId && selectedTeamId && b.teamId === selectedTeamId) return true;
+    if (b.teamId && teamId && b.teamId === teamId) return true;
     return !!b.revealedByMyTeam;
 }
 
@@ -5537,7 +5790,8 @@ socket.on("passive_sonar_detection", (data) => {
     // Filtre côté client : seuls les coéquipiers du propriétaire de la balise
     // voient la détection. Si je n'ai pas la même team, j'ignore.
     if (!data || !data.detectedId) return;
-    const myTeam = localTeamId || selectedTeamId;
+    const myTeam = spectatorMode ? sensorTeamId() : localTeamId || selectedTeamId;
+    if (spectatorMode && (!myTeam || data.teamId !== myTeam)) return;
     if (data.teamId && myTeam && data.teamId !== myTeam) return;
     // Marque le bateau détecté comme révélé pendant 3s (= intervalle tick).
     const now = performance.now();
@@ -5553,9 +5807,10 @@ function _mineKey(ownerId, mid) { return ownerId + ":" + mid; }
 //   - Surface : visible aussi si LOS clear depuis le joueur (peut révéler).
 //   - Bottom/suspended : sinon, visible si révélée par sonar (mineRevealedUntil).
 function isMineVisibleOnRadar(m, key) {
+    const teamId = spectatorMode ? sensorTeamId() : selectedTeamId;
     if (!m) return false;
     if (allMapMode) return true;
-    if (m.teamId && selectedTeamId && m.teamId === selectedTeamId) return true;
+    if (m.teamId && teamId && m.teamId === teamId) return true;
     if (m.revealedByMyTeam) return true;
     return !!mineRevealedUntil[key];
 }
@@ -5952,7 +6207,30 @@ function updateCannonButtons() {
     }
 }
 
-function findSelectedTarget() {
+function selectedBoatContact() {
+    const cached = radarFrozenBoats.find(b => b.id === selectedBoatId);
+    if (cached) {
+        if ((cached.pinged || cached.remembered) && !(sonarRevealedUntil[cached.id] > performance.now()
+            || passiveSonarDetectionsUntil[cached.id] > performance.now())) return null;
+        return cached;
+    }
+    const p = otherPlayers[selectedBoatId];
+    if (p && p.isEnabled() && isLineOfSightClear(p.position.x, p.position.z, null)) {
+        return { id: selectedBoatId, x: p.position.x, y: p.position.y, z: p.position.z };
+    }
+    return null;
+}
+
+function isTorpedoRadarVisible(t) {
+    if (!playerMesh) return false;
+    if (allMapMode) return true;
+    const p = playerMesh.position;
+    return Math.hypot(t.x - p.x, t.z - p.z) <= torpedoRadarRangeUnits
+        && (t.ownerId === (spectatorMode ? viewedBoat?.id : playerId) || isLineOfSightClear(t.x, t.z, null))
+        && countThermoclinesCrossed(p.x, p.y, p.z, t.x, t.y || 0, t.z) === 0;
+}
+
+function findSelectedTarget(allowRemembered = false) {
     if (selectedDroneKey) {
         const r = remoteDrones[selectedDroneKey];
         if (r && playerMesh) {
@@ -5982,7 +6260,10 @@ function findSelectedTarget() {
     }
     if (selectedBoatId && otherPlayers[selectedBoatId]) {
         const p = otherPlayers[selectedBoatId];
-        return { type: "boat", id: selectedBoatId, x: p.position.x, z: p.position.z, y: p.position.y };
+        const target = selectedBoatContact();
+        if (target && (allowRemembered || (!target.remembered && isLineOfSightClear(p.position.x, p.position.z, null)))) {
+            return { ...target, type: "boat" };
+        }
     }
     return null;
 }
@@ -5998,7 +6279,7 @@ function fireCannon(kind) {
     if (!spec) return;
     const ammo = kind === "cannon" ? cannonAmmo : aaAmmo;
     if (ammo <= 0) { setTransientMessage("Plus de munitions " + (kind === "cannon" ? "canon" : "DCA")); return; }
-    const target = findSelectedTarget();
+    const target = findSelectedTarget(kind === "cannon");
     if (!target) {
         setTransientMessage("Pas de cible sélectionnée");
         return;
@@ -6023,10 +6304,15 @@ function fireCannon(kind) {
     else if (target.type === "drone") { intent.ownerId = target.ownerId; intent.did = target.did; }
     else if (target.type === "beacon") intent.bid = target.bid;
     else if (target.type === "mine") { intent.ownerId = target.ownerId; intent.mid = target.mid; }
+    if (kind === "cannon" && target.type === "boat") {
+        intent.targetType = "point";
+        intent.fixedTarget = { x: target.x, y: target.y || 0, z: target.z };
+        delete intent.targetId;
+    }
     socket.emit("cannon_fire", withBsid(intent));
 }
 
-function spawnCannonTracer(kind, startX, startY, startZ, endX, endY, endZ, arcHeight, durationMs) {
+function spawnCannonTracer(kind, startX, startY, startZ, endX, endY, endZ, arcHeight, durationMs, shotId) {
     if (kind === "cannon") {
         const mesh = BABYLON.MeshBuilder.CreateSphere("shell", { diameter: 0.2 }, scene);
         const mat = new BABYLON.StandardMaterial("shellMat", scene);
@@ -6036,6 +6322,7 @@ function spawnCannonTracer(kind, startX, startY, startZ, endX, endY, endZ, arcHe
         mesh.position.set(startX, startY, startZ);
         cannonTracers.push({
             type: "shell",
+            shotId,
             mesh,
             startX, startY, startZ,
             endX, endY, endZ,
@@ -6280,11 +6567,11 @@ function toggleGrenadeAiming() {
         setTransientMessage("Sélectionnez d'abord une cible sur le radar");
         return;
     }
-    const targetMesh = otherPlayers[selectedBoatId];
-    if (!targetMesh) { setTransientMessage("Cible introuvable"); return; }
-    const worldX = targetMesh.position.x;
-    const worldZ = targetMesh.position.z;
-    const depthMeters = Math.max(5, Math.min(500, Math.round(-targetMesh.position.y * UNIT_METERS)));
+    const target = selectedBoatContact();
+    if (!target) { setTransientMessage("Cible introuvable"); return; }
+    const worldX = target.x;
+    const worldZ = target.z;
+    const depthMeters = Math.max(5, Math.min(500, Math.round(-target.y * UNIT_METERS)));
     const px = playerMesh.position.x;
     const pz = playerMesh.position.z;
     const dx = worldX - px;
@@ -6383,11 +6670,11 @@ function fireGrenadeSalve() {
         setTransientMessage("Sélectionnez d'abord une cible sur le radar");
         return;
     }
-    const targetMesh = otherPlayers[selectedBoatId];
-    if (!targetMesh) { setTransientMessage("Cible introuvable"); return; }
-    const tx = targetMesh.position.x;
-    const tz = targetMesh.position.z;
-    const depthMeters = Math.max(5, Math.min(500, Math.round(-targetMesh.position.y * UNIT_METERS)));
+    const target = selectedBoatContact();
+    if (!target) { setTransientMessage("Cible introuvable"); return; }
+    const tx = target.x;
+    const tz = target.z;
+    const depthMeters = Math.max(5, Math.min(500, Math.round(-target.y * UNIT_METERS)));
     const px = playerMesh.position.x;
     const pz = playerMesh.position.z;
     const dx = tx - px;
@@ -6894,6 +7181,7 @@ function spawnRlBot(runName, useMyTeam = false, checkpoint = "", boatType = "sub
 }
 window.spawnRlBot = spawnRlBot;
 function toggleBotsPopup() {
+    if (spectatorMode) { cycleActiveBoat(1); return; }
     const pop = document.getElementById("botsPopup");
     if (!pop) return;
     pop.style.display = pop.style.display === "block" ? "none" : "block";
@@ -7757,12 +8045,14 @@ function buildBoatTooltipText(id) {
     const posY = selMesh.position.y;
     const t = info && info.boatType;
     const typeLabel = t === "submarine" ? "Sous-marin" : t === "destroyer" ? "Destroyer" : "Bateau";
-    const ddx = posX - playerMesh.position.x;
-    const ddz = posZ - playerMesh.position.z;
+    const origin = playerMesh ? playerMesh.position : scene.activeCamera.target;
+    const ddx = posX - origin.x;
+    const ddz = posZ - origin.z;
     const distKm = (Math.sqrt(ddx * ddx + ddz * ddz) * UNIT_METERS / 1000).toFixed(1);
-    const integrity = hist && typeof hist.integrity === "number" ? Math.max(0, Math.round(hist.integrity)) : null;
+    const integrity = hist && typeof hist.integrity === "number" ? Math.round(integrityPercent(hist.integrity, hist.maxIntegrity ?? 100)) : null;
     const head = integrity != null ? typeLabel + " (" + integrity + "%)" : typeLabel;
-    const lines = [head, "Dist: " + distKm + " km"];
+    const lines = spectatorMode ? [head, id, (info && info.teamName) || "Sans equipe"]
+        : [head, "Dist: " + distKm + " km"];
     if (t === "submarine" && typeof posY === "number") {
         lines.push("Prof: " + Math.round(-posY * UNIT_METERS) + " m");
     }
@@ -7795,6 +8085,8 @@ function buildDroneTooltipText(droneInfo) {
     }
 }
 function buildTorpedoTooltipText(tkey) {
+    const playerId = sensorPlayerId();
+    const localTeamId = sensorTeamId();
     const r = remoteTorpedoes[tkey];
     if (!r) return null;
     if (!allMapMode && r.ownerId !== playerId && !isLineOfSightClear(r.x, r.z, null)) return null;
@@ -7816,15 +8108,17 @@ function buildTorpedoTooltipText(tkey) {
     const headLabel = showKind
         ? kindLabel + " (" + sideLabel + ")"
         : "Torpille (" + sideLabel + ")";
-    const acquired = (typeof r.tx === "number") && (typeof r.tz === "number");
-    const acqLabel = acquired ? "en acquisition" : "non activée";
-    const lines = [headLabel, "État: " + acqLabel, "Dist: " + distKm + " km"];
-    if (acquired) {
+    // Le protocole ne distingue pas point initial, souvenir et verrou courant.
+    const hasReference = (typeof r.tx === "number") && (typeof r.tz === "number");
+    const lines = [headLabel, "Dist: " + distKm + " km"];
+    if (hasReference) {
         const tdx = r.tx - r.x;
         const tdz = r.tz - r.z;
         const tdy = (typeof r.ty === "number" ? (r.ty - (r.y || 0)) : 0);
         const distTargetKm = (Math.sqrt(tdx * tdx + tdy * tdy + tdz * tdz) * UNIT_METERS / 1000).toFixed(2);
-        lines.push("Dist cible: " + distTargetKm + " km");
+        lines.push("Point de référence: " + distTargetKm + " km");
+    } else {
+        lines.push("Point de référence: indisponible");
     }
     if (typeof r.y === "number") {
         const depthM = Math.max(0, Math.round(-r.y * UNIT_METERS));
@@ -7877,6 +8171,10 @@ function _getVisuLabel(idx) {
             if (!el) return;
             const id = el.dataset.entityId;
             const type = el.dataset.entityType;
+            if (spectatorMode) {
+                if (type === "boat") followSpectatorBoat(id);
+                return;
+            }
             // Sélection identique au clic radar.
             selectedBoatId = null;
             selectedBoatIsSonar = false;
@@ -7932,7 +8230,9 @@ function _visuOccludedByIsland(targetPos) {
     return !!(hit && hit.hit);
 }
 function updateVisuLabels() {
-    if (!scene || !playerMesh) return;
+    const playerId = sensorPlayerId();
+    const localTeamId = sensorTeamId();
+    if (!scene || (!playerMesh && !spectatorMode)) return;
     let idx = 0;
     // Labels BATEAUX : toujours actifs (pas de cheat requis).
     // Visibilité 3D directe.
@@ -7941,7 +8241,8 @@ function updateVisuLabels() {
     //   lui (point projeté sous la ligne d'eau) pour qu'il reste visible.
     // - Moi en surface : je ne vois QUE les bateaux de surface ; les subs
     //   immergés sont invisibles → pas de label.
-    const iAmSubmerged = (currentBoatType === "submarine" && playerMesh.position.y < PERISCOPE_DEPTH) || zoomLowMode;
+    const iAmSubmerged = !playerMesh ? scene.activeCamera.position.y < PERISCOPE_DEPTH
+        : (currentBoatType === "submarine" && playerMesh.position.y < PERISCOPE_DEPTH) || zoomLowMode;
     for (const id in otherPlayers) {
         const mesh = otherPlayers[id];
         if (!mesh) continue;
@@ -7979,8 +8280,8 @@ function updateVisuLabels() {
         el.style.left = sp.x + "px";
         el.style.top = (sp.y - 12) + "px";
     }
-    // Labels TORPILLES : toujours affichés. Mode visu off → état acquisition +
-    // distance cible, fond coloré par type. Mode visu on → texte complet.
+    // Labels TORPILLES : point de reference, jamais une preuve de verrouillage.
+    // Mode visu on : texte complet.
     for (const key in remoteTorpedoes) {
         const r = remoteTorpedoes[key];
         if (!r || !r.mesh) continue;
@@ -7994,15 +8295,15 @@ function updateVisuLabels() {
         if (cheatVisuMode) {
             text = buildTorpedoTooltipText(key);
         } else {
-            const acquired = (typeof r.tx === "number") && (typeof r.tz === "number");
-            if (acquired) {
+            const hasReference = (typeof r.tx === "number") && (typeof r.tz === "number");
+            if (hasReference) {
                 const tdx = r.tx - r.x;
                 const tdz = r.tz - r.z;
                 const tdy = (typeof r.ty === "number" ? (r.ty - (r.y || 0)) : 0);
                 const distM = Math.round(Math.sqrt(tdx * tdx + tdy * tdy + tdz * tdz) * UNIT_METERS);
-                text = "Acquisition: " + distM + " m";
+                text = "Point de référence: " + distM + " m";
             } else {
-                text = "Non activée";
+                text = "Point de référence: indisponible";
             }
         }
         // Couleur de fond selon le type de torpille.
@@ -8048,6 +8349,7 @@ canvas.addEventListener("pointerdown", (e) => {
     _sceneClickStart = { x: e.clientX, y: e.clientY, t: performance.now() };
 }, true);
 canvas.addEventListener("pointerup", (e) => {
+    if (spectatorMode) return;
     if (e.button !== 0) return;
     if (!_sceneClickStart) return;
     const start = _sceneClickStart;
@@ -8114,7 +8416,18 @@ createScene();
 
 engine.runRenderLoop(() => {
     if (fpsOverlayEl) fpsRecordDt(performance.now());
-    if (!localBoat || !localBoat.mesh || !initialized) {
+    if (spectatorMode && initialized) {
+        if (viewedBoat && (!otherPlayers[viewedBoat.id] || remoteSinking[viewedBoat.id])) cycleSpectatorBoat();
+        if (!viewedBoat) {
+            const first = Object.keys(otherPlayersInfo).find(id => !remoteSinking[id] && !id.startsWith("lure_"));
+            if (first && remoteBoats[first]) followSpectatorBoat(first);
+        }
+        if (!viewedBoat) {
+            renderSpectator(Math.min(0.1, engine.getDeltaTime() / 1000));
+            return;
+        }
+    }
+    if ((!spectatorMode && (!localBoat || !localBoat.mesh)) || !initialized) {
         if (dayCycleState !== "off") updateDayCycle(engine.getDeltaTime() / 1000);
         scene.render();
         return;
@@ -8177,7 +8490,11 @@ engine.runRenderLoop(() => {
     // d'afficher la dernière valeur reçue via l'event `integrity`.
     const nowMs = performance.now();
     const integrityEl = document.getElementById("integrityDisplay");
-    if (integrityEl) integrityEl.textContent = "Intégrité: " + boatIntegrity.toFixed(0) + "%";
+    const viewedHistory = spectatorMode && viewedBoat ? otherPlayersHistory[viewedBoat.id] : null;
+    if (integrityEl) integrityEl.textContent = spectatorMode
+        ? "Intégrité: " + (typeof viewedHistory?.integrity === "number"
+            ? integrityPercent(viewedHistory.integrity, viewedHistory.maxIntegrity).toFixed(0) + "%" : "non communiquee")
+        : "Intégrité: " + boatIntegrity.toFixed(0) + "%";
     const overlay = document.getElementById("damageOverlay");
     if (overlay) {
         if (nowMs < damageFlashUntil) {
@@ -8330,6 +8647,7 @@ engine.runRenderLoop(() => {
     for (const id in otherPlayers) {
         const op = otherPlayers[id];
         const hist = otherPlayersHistory[id];
+        if (spectatorMode && remoteSinking[id]?.done) { op.setEnabled(false); continue; }
         const otherSubmerged = hist ? !!hist.submerged : (op.position.y < -0.7);
         const isViewed = !isViewingLocal() && viewedBoat && viewedBoat.id === id;
         let visible = !otherSubmerged || isViewed || selfSubmerged;
