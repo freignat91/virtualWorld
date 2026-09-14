@@ -7,9 +7,14 @@ console.log("[startup] après BABYLON.Engine t=" + performance.now().toFixed(0) 
 // batching HTTP du polling déborde au-delà du cap (16 par défaut).
 const socket = io({ autoConnect: false, transports: ["websocket"] });
 let spectatorMode = false;
+let autogameMode = false;
+let autogameDisplayPath = false;
+let autogameManualCheckpoint = false;
 const emitIntent = socket.emit.bind(socket);
 socket.emit = (event, ...args) => {
-    if (spectatorMode && !["spectate", "list_teams", "ws_ping"].includes(event)) return socket;
+    const manualCheckpointIntent = event === "set_autogame_checkpoint" && autogameManualCheckpoint;
+    if (spectatorMode && !manualCheckpointIntent
+            && !["spectate", "list_teams", "ws_ping"].includes(event)) return socket;
     return emitIntent(event, ...args);
 };
 let selectedBoatType = null;
@@ -190,6 +195,9 @@ function cycleSpectatorBoat(direction = 1) {
 
 function initSpectator(data) {
     spectatorMode = true;
+    autogameMode = data.autogame === true;
+    autogameDisplayPath = autogameMode && data.displayPath === 1;
+    autogameManualCheckpoint = autogameMode && data.manualCheckpoint === 1;
     _everJoinedGame = true;
     document.body.classList.add("spectator");
     document.getElementById("boatSelect").style.display = "none";
@@ -289,6 +297,14 @@ let currentBoatZoomCamera = { forwardMeters: 0, upMeters: 0 };
 let boatHalfWidth = 1;
 let modelRotationOffset = 0;
 let otherPlayers = {};
+const rlWaypoints = {};
+const rlWaypointPaths = {};
+const rlPlannedRoutes = {};
+const rlRouteProfiles = {};
+const RL_WAYPOINT_FINAL_REACHED_RADIUS_M = 200;
+const RL_WAYPOINT_INTERMEDIATE_REACHED_RADIUS_M = 500;
+const RL_PATH_SAMPLE_DISTANCE_SQ = 1;
+const RL_PATH_MAX_POINTS = 2000;
 const otherPlayerLoadGeneration = {};
 let nextOtherPlayerLoadGeneration = 1;
 let keys = {};
@@ -923,6 +939,18 @@ radarCanvas.addEventListener("click", (e) => {
     const worldX = w.x;
     const worldZ = w.z;
     if (spectatorMode) {
+        if (autogameManualCheckpoint && viewedBoat && viewedBoat.id) {
+            socket.emit("set_autogame_checkpoint", {
+                id: viewedBoat.id,
+                x: worldX,
+                z: worldZ,
+            }, (response) => {
+                if (response && response.error) {
+                    setTransientMessage("Checkpoint refusé : " + response.error);
+                }
+            });
+            return;
+        }
         const contact = radarFrozenBoats.find(b => {
             if (!remoteBoats[b.id] || remoteSinking[b.id] || b.remembered) return false;
             const p = worldToRadar(b.x, b.z, v);
@@ -1663,6 +1691,10 @@ function spawnWakeDot(x, z, now, opts) {
 }
 
 function createOtherPlayer(data) {
+    if ("rlWaypoint" in data) {
+        updateRlWaypoint(data.id, data.rlWaypoint, data.position, data.rlDestination);
+    }
+    if ("rlRoute" in data) updateRlRoute(data.id, data.rlRoute, data.rlRouteProfile);
     const boatData = data.boat;
     const offset = boatData.modelRotationOffset || 0;
     // Évite la double instanciation : si on connaît déjà ce joueur, on ne recharge pas.
@@ -1734,6 +1766,91 @@ function createOtherPlayer(data) {
             integrity: data.integrity, maxIntegrity: data.maxIntegrity ?? boatData.integrity ?? 100,
         };
     }
+}
+
+function updateRlWaypoint(id, waypoint, position = null, destination = null) {
+    if (!autogameMode) {
+        delete rlWaypoints[id];
+        delete rlWaypointPaths[id];
+        return;
+    }
+    const finalDestination = destination && Number.isFinite(destination.x)
+        && Number.isFinite(destination.z)
+        ? { x: destination.x, z: destination.z }
+        : null;
+    if (!waypoint || !Number.isFinite(waypoint.x) || !Number.isFinite(waypoint.z)) {
+        if (finalDestination) rlWaypoints[id] = finalDestination;
+        else delete rlWaypoints[id];
+        const path = rlWaypointPaths[id];
+        if (!autogameManualCheckpoint || !autogameDisplayPath || !path
+                || !position || !Number.isFinite(position.x) || !Number.isFinite(position.z)) {
+            delete rlWaypointPaths[id];
+            return;
+        }
+        const last = path.points[path.points.length - 1];
+        if (!last || position.x !== last.x || position.z !== last.z) {
+            path.points.push({ x: position.x, z: position.z });
+        }
+        return;
+    }
+    const routeDestination = finalDestination || { x: waypoint.x, z: waypoint.z };
+    rlWaypoints[id] = routeDestination;
+    if (!autogameDisplayPath) {
+        delete rlWaypointPaths[id];
+        return;
+    }
+    const previousPath = rlWaypointPaths[id];
+    const routeChanged = !previousPath || !previousPath.destination
+        || previousPath.destination.x !== routeDestination.x
+        || previousPath.destination.z !== routeDestination.z;
+    if (routeChanged) rlWaypointPaths[id] = {
+        points: [],
+        sampleDistanceSq: RL_PATH_SAMPLE_DISTANCE_SQ,
+        destination: routeDestination,
+    };
+    const path = rlWaypointPaths[id]
+        || (rlWaypointPaths[id] = { points: [], sampleDistanceSq: RL_PATH_SAMPLE_DISTANCE_SQ });
+    if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.z)) return;
+    const last = path.points[path.points.length - 1];
+    if (!last || (position.x - last.x) ** 2 + (position.z - last.z) ** 2
+            >= path.sampleDistanceSq) {
+        path.points.push({ x: position.x, z: position.z });
+        if (path.points.length > RL_PATH_MAX_POINTS) {
+            path.points = path.points.filter((unused, index) => index % 2 === 0);
+            path.sampleDistanceSq *= 4;
+        }
+    }
+}
+
+function updateRlRoute(id, route, profile = null) {
+    if (!autogameMode || !autogameDisplayPath || !Array.isArray(route)
+            || route.length < 2 || route.some(point => !point
+            || !Number.isFinite(point.x) || !Number.isFinite(point.z))) {
+        delete rlPlannedRoutes[id];
+        delete rlRouteProfiles[id];
+        return;
+    }
+    rlPlannedRoutes[id] = route.map(point => ({ x: point.x, z: point.z }));
+    if (profile && typeof profile.version === "string"
+            && Number.isFinite(profile.finalRadiusMeters)
+            && profile.finalRadiusMeters > 0
+            && Number.isFinite(profile.intermediateRadiusMeters)
+            && profile.intermediateRadiusMeters > 0) {
+        rlRouteProfiles[id] = {
+            version: profile.version,
+            finalRadiusMeters: profile.finalRadiusMeters,
+            intermediateRadiusMeters: profile.intermediateRadiusMeters,
+        };
+    } else {
+        delete rlRouteProfiles[id];
+    }
+}
+
+function clearRlWaypoints() {
+    for (const id of Object.keys(rlWaypoints)) delete rlWaypoints[id];
+    for (const id of Object.keys(rlWaypointPaths)) delete rlWaypointPaths[id];
+    for (const id of Object.keys(rlPlannedRoutes)) delete rlPlannedRoutes[id];
+    for (const id of Object.keys(rlRouteProfiles)) delete rlRouteProfiles[id];
 }
 
 
@@ -1860,6 +1977,9 @@ socket.on("server_full", (data) => {
 let botRlModels = {};
 socket.on("init", (data) => {
     if (data.spectator === true) { initSpectator(data); return; }
+    autogameMode = data.autogame === true;
+    autogameDisplayPath = autogameMode && data.displayPath === 1;
+    autogameManualCheckpoint = autogameMode && data.manualCheckpoint === 1;
     botRlModels = data.botRlModels || {};
     const _startupT0 = performance.now();
     const _startupLog = (label) => console.log(`[startup] ${label} +${(performance.now() - _startupT0).toFixed(0)}ms`);
@@ -2556,6 +2676,10 @@ socket.on("own_boat_added", (data) => {
 });
 
 socket.on("player_left", (data) => {
+    updateRlWaypoint(data.id, null);
+    delete rlPlannedRoutes[data.id];
+    delete rlRouteProfiles[data.id];
+    delete rlWaypointPaths[data.id];
     delete otherPlayerLoadGeneration[data.id];
     if (otherPlayers[data.id]) {
         otherPlayers[data.id].dispose();
@@ -2638,6 +2762,9 @@ socket.on("position_correct", (data) => {
 });
 
 socket.on("player_moved", (data) => {
+    if ("rlWaypoint" in data) {
+        updateRlWaypoint(data.id, data.rlWaypoint, data.position, data.rlDestination);
+    }
     // Multi-bateaux : on ignore les player_moved du bateau qu'on simule localement
     // pour éviter que le lissage serveur combatte la simu locale.
     if (selfControlledPlayerIds.has(data.id)) return;
@@ -2735,6 +2862,12 @@ socket.on("player_moved", (data) => {
             wrapper._smoothInit = true;
         }
     }
+});
+
+socket.on("autogame_checkpoint_set", (data) => {
+    updateRlWaypoint(data.id, data.waypoint, data.position, data.destination);
+    if ("route" in data) updateRlRoute(data.id, data.route, data.routeProfile);
+    if (viewedBoat && viewedBoat.id === data.id) setTransientMessage("Checkpoint défini");
 });
 
 const wrapperFrameDeltas = {};
@@ -4258,6 +4391,7 @@ function renderRadar(observerPosition = null) {
         ctx.lineTo(gx, h);
         ctx.stroke();
     }
+
     for (let gy = 0; gy < h; gy += 30) {
         ctx.beginPath();
         ctx.moveTo(0, gy);
@@ -4848,6 +4982,46 @@ function renderRadar(observerPosition = null) {
         ctx.fill();
     }
 
+    const viewedId = viewedBoat && viewedBoat.id;
+    const plannedRoute = autogameDisplayPath && viewedId ? rlPlannedRoutes[viewedId] : null;
+    const routeProfile = viewedId ? rlRouteProfiles[viewedId] : null;
+    if (plannedRoute && plannedRoute.length >= 2) {
+        ctx.strokeStyle = "#ff3030";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        plannedRoute.forEach((position, index) => {
+            const point = proj(position.x, position.z);
+            if (index === 0) ctx.moveTo(point.x, point.y);
+            else ctx.lineTo(point.x, point.y);
+        });
+        ctx.stroke();
+        ctx.strokeStyle = "#ff3030";
+        ctx.lineWidth = 2;
+        plannedRoute.slice(1, -1).forEach(position => {
+            const point = proj(position.x, position.z);
+            ctx.beginPath();
+            const radius = metersToUnits(
+                routeProfile ? routeProfile.intermediateRadiusMeters
+                    : RL_WAYPOINT_INTERMEDIATE_REACHED_RADIUS_M);
+            ctx.ellipse(point.x, point.y, radius * scaleX, radius * scaleZ,
+                0, 0, Math.PI * 2);
+            ctx.stroke();
+        });
+    }
+
+    const viewedPath = autogameDisplayPath && viewedId ? rlWaypointPaths[viewedId] : null;
+    if (viewedPath && viewedPath.points.length >= 2) {
+        ctx.strokeStyle = "#ffd000";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        viewedPath.points.forEach((position, index) => {
+            const point = proj(position.x, position.z);
+            if (index === 0) ctx.moveTo(point.x, point.y);
+            else ctx.lineTo(point.x, point.y);
+        });
+        ctx.stroke();
+    }
+
     if (playerMesh) {
         ctx.fillStyle = "#00ff00";
         ctx.beginPath();
@@ -4862,6 +5036,20 @@ function renderRadar(observerPosition = null) {
         ctx.beginPath();
         ctx.moveTo(px, pz);
         ctx.lineTo(dx, dz);
+        ctx.stroke();
+    }
+
+    const viewedWaypoint = autogameMode && viewedId ? rlWaypoints[viewedId] : null;
+    if (viewedWaypoint) {
+        const point = proj(viewedWaypoint.x, viewedWaypoint.z);
+        const radius = metersToUnits(
+            routeProfile ? routeProfile.finalRadiusMeters
+                : RL_WAYPOINT_FINAL_REACHED_RADIUS_M);
+        ctx.strokeStyle = "#ffd000";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.ellipse(point.x, point.y, radius * scaleX, radius * scaleZ,
+            0, 0, Math.PI * 2);
         ctx.stroke();
     }
 
@@ -5377,14 +5565,7 @@ function fireTorpedo(kind) {
         selectedTorpedoKey = null;
         return;
     }
-    // Deuxieme clic : tir droit devant, sans point de guidage invente.
-    if (aimingTorpedoKind === kind) {
-        cancelAim();
-        socket.emit("torpedo_fire", withBsid({ kind, activationMeters }));
-        setTransientMessage("Tir dans l'axe du bateau, sans cible acquise");
-        return;
-    }
-    // Le clic radar conserve la visee manuelle sur point fixe.
+    // Aucune cible sélectionnée : le clic radar suivant choisit un point fixe.
     aimingTorpedoKind = kind;
     showAimBanner(true);
 }
@@ -5395,7 +5576,7 @@ function showAimBanner(show) {
         banner = document.createElement("div");
         banner.id = "aimBanner";
         banner.style.cssText = "position:absolute;top:60px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.75);color:#ffaa00;padding:8px 16px;border-radius:5px;font-family:monospace;font-size:14px;z-index:20";
-        banner.textContent = "Radar : point de reference ; recliquez sur la torpille : tir dans l'axe, sans cible ; ESC : annuler";
+        banner.textContent = "Radar : sélectionnez une cible ou un point de tir ; ESC : annuler";
         document.body.appendChild(banner);
     } else if (!show && banner) {
         banner.remove();
@@ -7257,6 +7438,7 @@ if (weaponsCloseBtn) weaponsCloseBtn.addEventListener("click", () => {
 })();
 
 function clearWorld() {
+    clearRlWaypoints();
     for (const m of scene.meshes.slice()) {
         if (!m.name) continue;
         if (m.name === "ocean" || m.name === "seabed" || m.name === "grid"

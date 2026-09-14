@@ -12,6 +12,7 @@ from rl.rl_control import (
     DESTROYER_ACTION_NVECS,
     DESTROYER_OBS_DIM,
     DESTROYER_OBSERVATION_VERSION,
+    DESTROYER_V3_OBS_DIM,
     DESTROYER_V1_ACTION_NVECS,
     DESTROYER_V1_OBS_DIM,
     OBS_DIM,
@@ -78,6 +79,98 @@ class GymEnvironmentTest(unittest.TestCase):
         finally:
             env.close()
 
+    def test_final_interfaces_reward_sinking_the_opponent(self) -> None:
+        from rl.rl_env import SubmarineDuelEnv
+
+        for boat_type, version, action in (
+                ("submarine", "sub_duel_v2", [2, 1, 2, 0, 0]),
+                ("destroyer", "destroyer_duel_v4", [2, 1, 0, 0, 0])):
+            with self.subTest(boat_type=boat_type):
+                env = SubmarineDuelEnv(
+                    agent_boat_type=boat_type, control_version=version,
+                    frame_skip=1, reward={
+                        "win": 7.0, "damage_dealt": 0.0, "decision_cost": 0.0,
+                    })
+                try:
+                    env.reset(seed=41)
+                    opponent = env._opponent()
+                    agent_id = env._agent()["id"]
+                    env.runner.step = lambda _dt: env.runner.sim.sink_bot(
+                        env.opponent_sid, opponent, agent_id)
+                    _, reward, terminated, truncated, info = env.step(action)
+                    self.assertEqual(7.0, reward)
+                    self.assertTrue(terminated)
+                    self.assertFalse(truncated)
+                    self.assertEqual("win", info["outcome"])
+                finally:
+                    env.close()
+
+    def test_no_target_and_stationary_penalties_are_reported(self) -> None:
+        from rl.rl_env import SubmarineDuelEnv
+
+        def run(reward):
+            env = SubmarineDuelEnv(
+                seed=31, frame_skip=1, max_physics_steps=1,
+                spawn_min_m=1800.0, spawn_max_m=2000.0, reward=reward)
+            try:
+                env.reset(seed=31)
+                return env.step(np.array([2, 1, 2, 2, 0], dtype=np.int64))
+            finally:
+                env.close()
+
+        _, baseline, _, truncated, baseline_info = run({})
+        _, penalized, _, _, info = run({
+            "weapon_without_acquisition": -0.4,
+            "stationary_unengaged": -0.2,
+        })
+        self.assertTrue(truncated)
+        self.assertAlmostEqual(baseline - 0.5, penalized)
+        self.assertEqual(0, info["unacquired_weapons"])
+        self.assertEqual(1, info["invalid_weapons"])
+        self.assertEqual(1, info["stationary_decisions"])
+        self.assertEqual(1, info["stationary_unengaged_decisions"])
+        self.assertEqual(0, baseline_info["acquired_weapons"])
+
+    def test_lure_without_detected_torpedo_uses_dedicated_penalty(self) -> None:
+        from rl.rl_env import DEFAULT_REWARD, SubmarineDuelEnv
+
+        reward = {key: 0.0 for key in DEFAULT_REWARD}
+        reward["lure_without_threat"] = -0.1
+        for detected, expected in ((False, -0.1), (True, 0.0)):
+            with self.subTest(detected=detected):
+                env = SubmarineDuelEnv(frame_skip=1, reward=reward)
+                try:
+                    env.reset(seed=43)
+                    env._agent()["rl_torpedo_detected"] = detected
+                    with patch.object(env, "_predict_opponent"):
+                        _, value, _, _, _ = env.step(np.array([2, 1, 2, 0, 1]))
+                    self.assertTrue(env.runner.sim.lures)
+                    self.assertEqual(expected, value)
+                finally:
+                    env.close()
+
+    def test_behavior_pilot_configs_create_matching_environments(self) -> None:
+        from rl.train_ai import load_config, make_env
+
+        root = Path(__file__).resolve().parent
+        expected_shapes = {
+            "aisub_v16_acquisition.json": (32,),
+            "aisub_v16b_acquisition_strong.json": (32,),
+            "aidest_v8_mobility.json": (DESTROYER_V3_OBS_DIM,),
+        }
+        for filename, shape in expected_shapes.items():
+            with self.subTest(config=filename):
+                config = load_config(str(root / "configs" / filename))
+                env = make_env(
+                    config, seed=int(config["training"]["seed"]), stage="scripted",
+                    curriculum_decisions=0, league_dir=root / "models_rl" / "unused")()
+                try:
+                    observation, _ = env.reset(seed=int(config["training"]["seed"]))
+                    self.assertEqual(shape, observation.shape)
+                    self.assertTrue(env.observation_space.contains(observation))
+                finally:
+                    env.close()
+
     def test_recurrent_ppo_smoke_training(self) -> None:
         from sb3_contrib import RecurrentPPO
         from rl.rl_env import SubmarineDuelEnv
@@ -131,7 +224,13 @@ class GymEnvironmentTest(unittest.TestCase):
     def test_match_score_evaluation_saves_best_model(self) -> None:
         from sb3_contrib import RecurrentPPO
         from rl.rl_env import SubmarineDuelEnv
-        from rl.train_ai import MatchScoreEvalCallback, match_score, weighted_match_score
+        from rl.train_ai import (
+            MatchScoreEvalCallback,
+            behavior_gate_report,
+            match_score,
+            validate_behavior_gates,
+            weighted_match_score,
+        )
 
         low = {"episodes": 10, "wins": 2, "losses": 6, "draws": 2}
         high = {"episodes": 10, "wins": 6, "losses": 2, "draws": 2}
@@ -142,6 +241,18 @@ class GymEnvironmentTest(unittest.TestCase):
             match_score({"episodes": 10, "wins": 4, "losses": 4, "draws": 1})
         with self.assertRaises(ValueError):
             weighted_match_score(((low, -1.0),))
+        gate_config = {"evaluation": {"behavior_gates": {
+            "max_unacquired_weapon_fraction": 0.05,
+            "max_stationary_unengaged_fraction": 0.35,
+            "min_mean_acquired_weapons": 0.5,
+        }}}
+        details = [{"selection_weight": 1.0, "unacquired_weapon_fraction": 0.1,
+                    "stationary_unengaged_fraction": 0.2, "mean_acquired_weapons": 1.0}]
+        behavior = behavior_gate_report(gate_config, details)
+        self.assertFalse(behavior["passed"])
+        self.assertEqual(["max_unacquired_weapon_fraction"], behavior["failures"])
+        with self.assertRaises(ValueError):
+            validate_behavior_gates({"evaluation": {"behavior_gates": {"unknown": 1}}})
 
         env = SubmarineDuelEnv(
             seed=26, frame_skip=2, max_physics_steps=20,
@@ -459,14 +570,33 @@ class GymEnvironmentTest(unittest.TestCase):
         self.assertEqual(0.0, remembered[10])
         self.assertEqual(last_x, agent["rl_contact"]["x"])
 
-    def test_weapon_without_contact_fires_without_hidden_aim(self) -> None:
+    def test_weapon_without_contact_is_rejected_without_hidden_aim(self) -> None:
         agent = self.runner.legacy.bots[self.agent_sid]
         result = apply_action(agent, self.runner.sim, [2, 1, 2, 1, 0])
-        self.assertTrue(result["weapon_fired"])
-        self.assertFalse(result["weapon_invalid"])
-        torpedo = next(iter(self.runner.legacy.torpedoes_server.values()))
-        self.assertIsNone(torpedo["initialTarget"])
-        self.assertIsNone(torpedo["targetId"])
+        self.assertFalse(result["weapon_fired"])
+        self.assertTrue(result["weapon_invalid"])
+        self.assertFalse(result["weapon_had_acquisition"])
+        self.assertTrue(result["weapon_without_acquisition"])
+        self.assertIsNone(result["weapon_contact_age_s"])
+        self.assertIsNone(result["weapon_bearing_error_deg"])
+        self.assertFalse(self.runner.legacy.torpedoes_server)
+
+        opponent = self.runner.legacy.bots[self.opponent_sid]
+        agent["next_torpedo_at"] = 0.0
+        agent["rl_contact"] = {
+            "id": opponent["id"], "sid": opponent["sid"],
+            "x": opponent["position"]["x"], "y": opponent["position"]["y"],
+            "z": opponent["position"]["z"], "at": self.runner.sim.now(),
+            "boat": opponent["boat"],
+        }
+        agent["rl_contact_tracked"] = True
+        acquired = apply_action(agent, self.runner.sim, [2, 1, 2, 2, 0])
+        self.assertTrue(acquired["weapon_fired"])
+        self.assertTrue(acquired["weapon_had_acquisition"])
+        self.assertFalse(acquired["weapon_without_acquisition"])
+        self.assertEqual(0.0, acquired["weapon_contact_age_s"])
+        self.assertAlmostEqual(180.0, acquired["weapon_bearing_error_deg"])
+        self.assertTrue(acquired["weapon_misaligned"])
 
 
 if __name__ == "__main__":

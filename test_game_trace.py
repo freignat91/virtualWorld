@@ -100,6 +100,55 @@ class GameTraceTest(unittest.TestCase):
         self.assertEqual(integrity["data"]["fields"], {"value": 77, "max_integrity": 100.0, "player_id": "p"})
         self.assertEqual([r["seq"] for r in rows], list(range(1, len(rows) + 1)))
 
+    def test_rl_decision_keeps_behavior_fields(self) -> None:
+        trace = self.trace(enabled=True)
+        trace.event(events.RLDecision(
+            player_id="p", control_version="sub_duel_v1", decision_at=123.0,
+            physics_dt=0.05, simulation_step=1, decision_interval_s=0.25,
+            episode_start=False, observation=[0.0] * 32, action=[2, 1, 2, 2, 0],
+            result={"weapon_requested": True, "weapon_fired": True,
+                    "weapon_without_acquisition": True, "weapon_had_acquisition": False,
+                    "weapon_misaligned": False, "weapon_contact_age_s": None,
+                    "weapon_bearing_error_deg": None, "private": "SECRET"},
+            visible_threat=None, model_id="model", model_sha256="sha"), {})
+        fields = self.rows()[-1]["data"]["fields"]["result"]
+        self.assertTrue(fields["weapon_without_acquisition"])
+        self.assertFalse(fields["weapon_had_acquisition"])
+        self.assertNotIn("private", fields)
+        self.assertNotIn("SECRET", self.path.read_text())
+
+    def test_v16_route_keeps_waypoints_graph_path_and_efficiency(self) -> None:
+        trace = self.trace(enabled=True)
+        trace.route_planned({
+            "player_id": "bot001", "runtime_version": "v16",
+            "model_id": "model", "model_sha256": "sha", "unit_meters": 10.0,
+            "start": {"x": 0.0, "z": 0.0},
+            "destination": {"x": 100.0, "z": 100.0},
+            "waypoints": [
+                {"index": 0, "kind": "intermediate", "x": 50.0, "z": 0.0,
+                 "arrival_radius_m": 500.0},
+                {"index": 1, "kind": "final", "x": 100.0, "z": 100.0,
+                 "arrival_radius_m": 500.0},
+            ],
+            "graph_path": [
+                {"x": 0.0, "z": 0.0}, {"x": 40.0, "z": 10.0},
+                {"x": 100.0, "z": 100.0},
+            ],
+            "direct_distance_m": 1414.2, "planned_distance_m": 1618.0,
+            "graph_distance_m": 1495.0, "planned_to_graph_ratio": 1.0823,
+            "graph_detour_ratio": 1.0571, "destination_clearance_m": 100.0,
+            "intermediate_clearance_m": 500.0, "route_node_margin_m": 600.0,
+            "direct_goal_distance_m": 7500.0,
+        })
+        row = self.rows()[-1]
+        self.assertEqual("route_planned", row["type"])
+        self.assertEqual("v16", row["data"]["runtime_version"])
+        self.assertEqual((50.0, 0.0), (
+            row["data"]["waypoints"][0]["x"],
+            row["data"]["waypoints"][0]["z"]))
+        self.assertEqual(3, len(row["data"]["graph_path"]))
+        self.assertEqual(1.0823, row["data"]["planned_to_graph_ratio"])
+
     def test_integrity_maxima_and_nonlethal_lure_event(self) -> None:
         trace = self.trace(enabled=True)
         self.sim.players["secret-sid"] = dict(id="p", integrity=120, maxIntegrity=200)

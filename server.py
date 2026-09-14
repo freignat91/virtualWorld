@@ -54,6 +54,9 @@ autogame_end = None
 autogame_shutdown = None
 autogame_boats = []
 autogame_preparation = None
+autogame_mode = False
+autogame_display_path = 0
+autogame_manual_checkpoint = 0
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 _flask_secret_key = os.environ.get("VIRTUALWORLD_SECRET_KEY")
@@ -81,14 +84,19 @@ class GameSocketIO(SocketIO):
         def decorate(handler):
             @wraps(handler)
             def guarded(*args, **kwargs):
+                manual_checkpoint_intent = (
+                    message == "set_autogame_checkpoint" and autogame_mode
+                    and autogame_manual_checkpoint == 1)
                 if request.sid in spectator_sids:
                     # Un event applicatif forge "disconnect" ne doit pas lever le verrou.
                     disconnected = message == "disconnect" and not self.server.manager.is_connected(
                         request.sid, request.namespace)
-                    if not disconnected and message not in {"spectate", "list_teams", "ws_ping"}:
+                    if (not disconnected and not manual_checkpoint_intent
+                            and message not in {"spectate", "list_teams", "ws_ping"}):
                         return {"error": "spectator_read_only"}
-                if autogame_preparation is not None and message not in {
-                        "connect", "disconnect", "spectate", "list_teams", "ws_ping", "ws_rtt_report"}:
+                if (autogame_preparation is not None and message not in {
+                        "connect", "disconnect", "spectate", "list_teams", "ws_ping", "ws_rtt_report"}
+                        and not manual_checkpoint_intent):
                     return {"error": "autogame_preparing"}
                 return handler(*args, **kwargs)
             return register(guarded)
@@ -149,6 +157,50 @@ def _round_pos(pos, n=2):
     }
 
 
+def _autogame_waypoint_payload(player_id, include_route=False):
+    """Expose l'objectif RL uniquement dans une partie autogame."""
+    if not autogame_mode:
+        return {}
+    bot = next((candidate for candidate in bots.values()
+                if candidate.get("id") == player_id), None)
+    if bot is None or "rl_waypoint" not in bot:
+        return {}
+    def rounded(point):
+        if not isinstance(point, dict):
+            return None
+        x, z = point.get("x"), point.get("z")
+        if (type(x) not in (int, float) or type(z) not in (int, float)
+                or not math.isfinite(x) or not math.isfinite(z)):
+            return None
+        return {"x": _r(x, 3), "z": _r(z, 3)}
+
+    payload = {"rlWaypoint": rounded(bot.get("rl_waypoint"))}
+    destination = rounded(bot.get("rl_destination"))
+    if destination is not None:
+        payload["rlDestination"] = destination
+    if include_route and autogame_display_path == 1:
+        controller = bot.get("rl_controller")
+        if controller is not None:
+            payload["rlRouteProfile"] = {
+                "version": getattr(controller, "runtime_version", "legacy"),
+                "finalRadiusMeters": controller.final_waypoint_radius_m,
+                "intermediateRadiusMeters": controller.intermediate_waypoint_radius_m,
+            }
+        route_start = rounded(bot.get("rl_route_start"))
+        route = bot.get("rl_route")
+        if route_start is not None and isinstance(route, list):
+            planned = [route_start]
+            for point in route:
+                point = rounded(point)
+                if point is None:
+                    planned = []
+                    break
+                planned.append(point)
+            if len(planned) >= 2:
+                payload["rlRoute"] = planned
+    return payload
+
+
 def _emit_one(name, payload, target_sid=None):
     if target_sid:
         _socket_emit(name, payload, to=target_sid)
@@ -157,7 +209,10 @@ def _emit_one(name, payload, target_sid=None):
 
 
 def _dispatch_player_joined(e):
-    _emit_one("player_joined", e.player_data)
+    _emit_one("player_joined", {
+        **e.player_data,
+        **_autogame_waypoint_payload(e.player_data.get("id"), include_route=True),
+    })
 
 
 def _dispatch_player_left(e):
@@ -175,6 +230,7 @@ def _dispatch_player_moved(e):
         "integrity": _r(e.integrity, 1),
         "maxIntegrity": e.max_integrity,
         "submerged": e.submerged,
+        **_autogame_waypoint_payload(e.player_id),
     })
 
 
@@ -972,6 +1028,9 @@ def handle_select_boat(data):
     logging.info(f"[startup] load_world (init payload)={((time.time()-_t0)*1000):.0f}ms")
     _t0 = time.time()
     _init_payload = {
+        "autogame": autogame_mode,
+        "displayPath": autogame_display_path if autogame_mode else 0,
+        "manualCheckpoint": autogame_manual_checkpoint if autogame_mode else 0,
         "world": _world_for_init,
         "playerId": player_id,
         "integrity": players[request.sid]["integrity"],
@@ -980,7 +1039,10 @@ def handle_select_boat(data):
         "boat": boat_data,
         "team_id": team_id,
         "team_name": team_name,
-        "players": {sid: p for sid, p in players.items() if sid != request.sid},
+        "players": {
+            sid: {**p, **_autogame_waypoint_payload(p.get("id"), include_route=True)}
+            for sid, p in players.items() if sid != request.sid
+        },
         "position": players[request.sid]["position"],
         "rotation": players[request.sid]["rotation"],
         "dayCycle": day_cycle_snapshot(),
@@ -1027,8 +1089,14 @@ def handle_spectate() -> dict:
     now = time.time()
     payload = {
         "spectator": True,
+        "autogame": autogame_mode,
+        "displayPath": autogame_display_path if autogame_mode else 0,
+        "manualCheckpoint": autogame_manual_checkpoint if autogame_mode else 0,
         "world": load_world(),
-        "players": {sid: p for sid, p in players.items()},
+        "players": {
+            sid: {**p, **_autogame_waypoint_payload(p.get("id"), include_route=True)}
+            for sid, p in players.items()
+        },
         "dayCycle": day_cycle_snapshot(),
         "sonarBeacons": [
             {k: v for k, v in b.items() if k not in ("ownerSid", "revealedTeams")}
@@ -1064,6 +1132,103 @@ def handle_spectate() -> dict:
                 "durationMs": (lure["expiresAt"] - now) * 1000,
             }, target_sid=request.sid)
     return {"spectator": True}
+
+
+@socketio.on("set_autogame_checkpoint")
+def handle_set_autogame_checkpoint(data) -> dict:
+    """Autorise un observateur autogame à fixer l'objectif du bot RL choisi."""
+    if request.sid not in spectator_sids:
+        return {"error": "observer_only"}
+    if not autogame_mode or autogame_manual_checkpoint != 1:
+        return {"error": "manual_checkpoint_disabled"}
+    if not isinstance(data, dict) or set(data) != {"id", "x", "z"}:
+        return {"error": "invalid_checkpoint"}
+    player_id = data["id"]
+    x, z = data["x"], data["z"]
+    if (not isinstance(player_id, str) or type(x) not in (int, float)
+            or type(z) not in (int, float) or not math.isfinite(x) or not math.isfinite(z)):
+        return {"error": "invalid_checkpoint"}
+    if not any(entry.get("id") == player_id for entry in autogame_boats):
+        return {"error": "unknown_autogame_boat"}
+    bot = next((candidate for candidate in bots.values()
+                if candidate.get("id") == player_id), None)
+    if bot is None or not bot.get("rl_manual_checkpoint"):
+        return {"error": "manual_checkpoint_unavailable"}
+    controller = bot.get("rl_controller")
+    if controller is not None and hasattr(controller, "plan_route"):
+        destination_clearance_m = controller.destination_clearance_m
+        final_waypoint_radius_m = controller.final_waypoint_radius_m
+        plan_route = controller.plan_route
+    else:
+        from rl.navigable_path import DESTINATION_CLEARANCE_M, plan_segmented_route
+        from rl.waypoints import WAYPOINT_FINAL_REACHED_RADIUS_M
+
+        destination_clearance_m = DESTINATION_CLEARANCE_M
+        final_waypoint_radius_m = WAYPOINT_FINAL_REACHED_RADIUS_M
+        plan_route = plan_segmented_route
+    world = load_world()
+    ground = world.get("ground") or {}
+    clearance_u = destination_clearance_m / UNIT_METERS_BOT
+    half_width = float(ground.get("width", 0.0)) / 2.0 - clearance_u
+    half_depth = float(ground.get("depth", 0.0)) / 2.0 - clearance_u
+    if (abs(x) >= half_width or abs(z) >= half_depth
+            or point_on_any_island(x, z, world)
+            or min_distance_to_islands(x, z, world) <= clearance_u):
+        return {"error": "invalid_checkpoint_position"}
+    position = bot["position"]
+    distance_m = math.hypot(x - position["x"], z - position["z"]) * UNIT_METERS_BOT
+    if distance_m <= final_waypoint_radius_m:
+        return {"error": "checkpoint_too_close"}
+    start = (float(position["x"]), float(position["z"]))
+    destination = {"x": float(x), "z": float(z)}
+    try:
+        planner = bot.get("rl_route_planner")
+        planned_points = plan_route(
+            world, start, (float(x), float(z)), planner=planner)
+        route = [
+            {"x": point[0], "z": point[1]}
+            for point in planned_points
+        ]
+    except (RuntimeError, ValueError):
+        return {"error": "checkpoint_unreachable"}
+    if not route:
+        return {"error": "checkpoint_unreachable"}
+    waypoint = dict(route[0])
+    bot["rl_destination"] = destination
+    bot["rl_route_start"] = {"x": start[0], "z": start[1]}
+    bot["rl_route"] = [dict(point) for point in route]
+    bot["rl_route_waypoints"] = [dict(point) for point in route[1:]]
+    bot["rl_waypoint"] = waypoint
+    route_trace = getattr(controller, "route_trace", None)
+    if game_trace.enabled and callable(route_trace):
+        try:
+            game_trace.route_planned(route_trace(
+                player_id, start, destination, route, bot.get("rl_route_planner")))
+        except Exception:
+            game_trace._disable()
+    if controller is not None:
+        controller.next_decision_at = 0.0
+    payload = {
+        "id": player_id,
+        "waypoint": {"x": _r(waypoint["x"], 3), "z": _r(waypoint["z"], 3)},
+        "destination": {"x": _r(destination["x"], 3), "z": _r(destination["z"], 3)},
+        "segmentCount": len(route),
+        "position": _round_pos(position),
+    }
+    if autogame_display_path == 1:
+        payload["route"] = [
+            {"x": _r(point["x"], 3), "z": _r(point["z"], 3)}
+            for point in (bot["rl_route_start"], *bot["rl_route"])
+        ]
+        if controller is not None:
+            payload["routeProfile"] = {
+                "version": getattr(controller, "runtime_version", "legacy"),
+                "finalRadiusMeters": controller.final_waypoint_radius_m,
+                "intermediateRadiusMeters": controller.intermediate_waypoint_radius_m,
+            }
+    _emit_one("autogame_checkpoint_set", payload)
+    logging.info("[autogame] checkpoint manuel %s: x=%.3f z=%.3f", player_id, x, z)
+    return {"ok": True, **payload}
 
 
 def _cleanup_player_entities(sid, pid):
@@ -2907,9 +3072,11 @@ def spawn_torpedo(sid, player_dict, data):
     if aim_x is None and fixed:
         aim_x = float(fixed.get("x", 0))
         aim_z = float(fixed.get("z", 0))
+    if aim_x is None:
+        return
     # Validation portée.
     max_range_m = spec.get("maxRangeMeters", 10000)
-    dist_m = math.hypot(aim_x - bx, aim_z - bz) * UNIT_METERS_BOT if aim_x is not None else 0.0
+    dist_m = math.hypot(aim_x - bx, aim_z - bz) * UNIT_METERS_BOT
     # Log diagnostic tir humain : on vérifie que la cible serveur est bien là
     # où le client visait. Si targetId, on log la position serveur courante du
     # bateau cible (= position où la torpille va se diriger en phase course).
@@ -2978,7 +3145,7 @@ def spawn_torpedo(sid, player_dict, data):
         "acquiredBoatId": None,
         "inAcquisition": False,
         "lastIntensity": 0.0,
-        "initialTarget": (aim_x, aim_y, aim_z) if aim_x is not None else None,
+        "initialTarget": (aim_x, aim_y, aim_z),
         "targetId": target_id,
         "wireYaw": 0,
         "wirePitch": 0,
@@ -4004,6 +4171,7 @@ def run_server() -> None:
 def initialize_autogame():
     """Charge une seule fois au demarrage, avant toute tache ou socket cliente."""
     global sim, autogame_end, autogame_boats, autogame_preparation
+    global autogame_mode, autogame_display_path, autogame_manual_checkpoint
     from pathlib import Path
     from autogame import prepare_autogame, AutogameEnd
 
@@ -4026,9 +4194,11 @@ def initialize_autogame():
     if game_trace.enabled:
         try:
             game_trace._write("autogame", {"map": current_map_name, "boats": autogame_boats,
-                              "endCondition": scenario.end_condition,
-                              "maxDurationSeconds": scenario.max_duration,
-                              "startDelaySeconds": scenario.start_delay})
+                               "endCondition": scenario.end_condition,
+                               "maxDurationSeconds": scenario.max_duration,
+                               "startDelaySeconds": scenario.start_delay,
+                               "displayPath": scenario.display_path,
+                               "manualCheckpoint": scenario.manual_checkpoint})
         except Exception:
             game_trace._disable()
         game_trace.observe(sim, sys.modules[__name__])
@@ -4043,6 +4213,9 @@ def initialize_autogame():
                                readyMonotonic=ready, readyAt=ready_at,
                                plannedStartMonotonic=ready + scenario.start_delay,
                                plannedStartAt=ready_at + scenario.start_delay)
+    autogame_mode = True
+    autogame_display_path = scenario.display_path
+    autogame_manual_checkpoint = scenario.manual_checkpoint
     logging.info("[autogame_ready] %s", json.dumps(autogame_preparation, sort_keys=True))
     if game_trace.enabled:
         try:

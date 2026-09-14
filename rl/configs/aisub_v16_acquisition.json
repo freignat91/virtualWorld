@@ -1,0 +1,91 @@
+{
+  "name": "aisub_v16_acquisition",
+  "description": "Pilote warm-start v15, penalite isolee des tirs sans acquisition exploitable.",
+  "model": {
+    "net_arch": [256, 256],
+    "lstm_hidden_size": 256,
+    "n_lstm_layers": 1
+  },
+  "training": {
+    "total_steps": 100000,
+    "n_envs": 8,
+    "seed": 9542,
+    "learning_rate": 0.00005,
+    "n_steps": 1024,
+    "batch_size": 256,
+    "n_epochs": 8,
+    "gamma": 0.997,
+    "gae_lambda": 0.97,
+    "ent_coef": 0.001,
+    "ent_coef_end": 0.001,
+    "clip_range": 0.2,
+    "vf_coef": 0.5,
+    "max_grad_norm": 0.5,
+    "checkpoint_every_steps": 100000
+  },
+  "env": {
+    "map_name": "combats",
+    "agent_boat_type": "submarine",
+    "opponents": [
+      {"boat_type": "submarine", "ai": "autosub", "weight": 1.0},
+      {"boat_type": "destroyer", "ai": "autodest", "weight": 1.0}
+    ],
+    "fixed_opponent_policy": {
+      "boat_type": "destroyer",
+      "pool_dir": "models_rl/aidest_v3_scripted/best",
+      "probability": 0.5
+    },
+    "frame_skip": 5,
+    "max_physics_steps": 6000,
+    "spawn_min_m": 600.0,
+    "spawn_max_m": 2000.0,
+    "curriculum_start_min_m": 600.0,
+    "curriculum_start_max_m": 1200.0,
+    "curriculum_fraction": 0.2
+  },
+  "reward": {
+    "win": 10.0,
+    "loss": -10.0,
+    "damage_dealt": 0.02,
+    "damage_taken": -0.02,
+    "decision_cost": -0.001,
+    "weapon_fired": -0.02,
+    "weapon_invalid": -0.005,
+    "weapon_without_acquisition": -0.1,
+    "weapon_misaligned": 0.0,
+    "stationary_unengaged": 0.0,
+    "lure_dropped": -0.01,
+    "lure_invalid": -0.002,
+    "sonar_pinged": -0.01,
+    "sonar_invalid": -0.002,
+    "mine_placed": -0.05,
+    "mine_invalid": -0.005,
+    "new_contact": 0.01
+  },
+  "evaluation": {
+    "map_name": "testCombats",
+    "opponents": [
+      {"boat_type": "submarine", "ai": "autosub", "weight": 1.0},
+      {"boat_type": "destroyer", "ai": "autodest", "weight": 1.0}
+    ],
+    "fixed_opponent_policy": {
+      "boat_type": "destroyer",
+      "pool_dir": "models_rl/aidest_v3_scripted/best",
+      "probability": 0.5
+    },
+    "every_steps": 100000,
+    "episodes": 60,
+    "behavior_gates": {
+      "max_unacquired_weapon_fraction": 0.05,
+      "max_misaligned_weapon_fraction": 0.25,
+      "max_invalid_weapon_request_fraction": 0.5,
+      "max_zero_weapon_episode_fraction": 0.5,
+      "min_mean_acquired_weapons": 0.5
+    }
+  },
+  "league": {
+    "self_play_probability": 0.7,
+    "snapshot_every_steps": 100000,
+    "keep_last": 12
+  }
+}

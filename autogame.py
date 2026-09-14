@@ -20,6 +20,8 @@ class PreparedAutogame:
     end_condition: Optional[Dict[str, Any]]
     max_duration: Optional[float]
     start_delay: float = 0.0
+    display_path: int = 0
+    manual_checkpoint: int = 0
 
 
 class AutogameEnd:
@@ -92,7 +94,9 @@ def prepare_autogame(path: Path, map_name: str, world: Dict[str, Any],
     """Valide tout avant spawn ; fichier absent ou IA invalide = erreur fatale."""
     with path.open(encoding="utf-8") as stream:
         data = json.load(stream)
-    if not isinstance(data, dict) or set(data) - {"map", "boats", "endCondition", "maxDurationSeconds", "startDelaySeconds"}:
+    if not isinstance(data, dict) or set(data) - {
+            "map", "boats", "endCondition", "maxDurationSeconds", "startDelaySeconds",
+            "displayPath", "manualCheckpoint"}:
         raise ValueError("autogame: objet attendu, champs inconnus interdits")
     if "map" in data and data["map"] != map_name:
         raise ValueError("autogame: map doit correspondre a --map")
@@ -124,6 +128,12 @@ def prepare_autogame(path: Path, map_name: str, world: Dict[str, Any],
         raise ValueError("autogame: startDelaySeconds doit etre fini et positif ou nul")
     if delay > 0 and not entries:
         raise ValueError("autogame: un delai de preparation exige des bateaux")
+    display_path = data.get("displayPath", 0)
+    if type(display_path) is not int or display_path not in (0, 1):
+        raise ValueError("autogame: displayPath doit valoir 0 ou 1")
+    manual_checkpoint = data.get("manualCheckpoint", 0)
+    if type(manual_checkpoint) is not int or manual_checkpoint not in (0, 1):
+        raise ValueError("autogame: manualCheckpoint doit valoir 0 ou 1")
     prepared = []
     for index, entry in enumerate(entries):
         label = f"autogame boats[{index}]"
@@ -163,7 +173,15 @@ def prepare_autogame(path: Path, map_name: str, world: Dict[str, Any],
         state = {"boatType": kind, "position": dict(pos)}
         if ai.startswith("rl_"):
             from rl.rl_runtime import attach_controller
+
             attach_controller(state, ai, trace_enabled=trace_enabled)
+            controller = state["rl_controller"]
+            if controller.uses_waypoints:
+                state["rl_manual_checkpoint"] = bool(manual_checkpoint)
+                if manual_checkpoint:
+                    state["rl_route_planner"] = controller.create_route_planner(world)
+                else:
+                    controller.ensure_waypoint(state, world)
         else:
             if not re.fullmatch(r"[A-Za-z0-9_-]+", ai):
                 raise ValueError(f"{label}: nom BT invalide")
@@ -186,4 +204,5 @@ def prepare_autogame(path: Path, map_name: str, world: Dict[str, Any],
                              rotation=rotation, team_id=entry["teamId"],
                              team_name=entry.get("teamName", entry["teamId"]),
                              prepared_ai=state))
-    return PreparedAutogame(prepared, condition, duration, delay)
+    return PreparedAutogame(
+        prepared, condition, duration, delay, display_path, manual_checkpoint)

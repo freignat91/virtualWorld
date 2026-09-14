@@ -10,20 +10,23 @@ from pathlib import Path
 import statistics
 
 
-def analyze(root: Path) -> dict:
+def analyze(root: Path, models: tuple[str, str] = ('v3', 'v4'), seed_start: int = 98000) -> dict:
     groups = {}
     paired = {}
-    for model in ('v3', 'v4'):
+    seeds = list(range(seed_start, seed_start + 20))
+    assert len(set(models)) == 2
+    for model in models:
         directory = root / model
         launch = json.loads((directory / 'launch.json').read_text())
         report = json.loads((directory / 'results.json').read_text())
+        assert launch['seeds'] == seeds
         assert report['completed'] and len(report['results']) == 40
         project = Path(__file__).resolve().parent.parent
         for name, digest in launch['inputs'].items():
             assert hashlib.sha256((project / name).read_bytes()).hexdigest() == digest, name
         for opponent in ('autosub', 'sub15'):
             episodes = [e for e in report['results'] if e['opponent_label'] == opponent]
-            assert sorted(e['seed'] for e in episodes) == list(range(98000, 98020))
+            assert sorted(e['seed'] for e in episodes) == seeds
             counts, damage, first_damage, ammo_used, empty, transitions = (Counter() for _ in range(6))
             events, trace_damage = Counter(), Counter()
             decisions = 0
@@ -114,10 +117,10 @@ def analyze(root: Path) -> dict:
     score = {'win': 1, 'draw': .5, 'loss': 0}
     for phase in ('first', 'settled'):
         differences = []
-        for seed in range(98000, 98020):
+        for seed in seeds:
             ds = []
             for opponent in ('autosub', 'sub15'):
-                a, b = (paired[m, opponent, seed] for m in ('v3', 'v4'))
+                a, b = (paired[m, opponent, seed] for m in models)
                 assert a['initial'] == b['initial'], (opponent, seed)
                 assert a['initial_ammo'] == b['initial_ammo']
                 ds.append(score[b[phase]['outcome']] - score[a[phase]['outcome']])
@@ -133,8 +136,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('directory', type=Path)
     parser.add_argument('--output', type=Path)
+    parser.add_argument('--models', nargs=2, default=('v3', 'v4'))
+    parser.add_argument('--seed-start', type=int, default=98000)
     args = parser.parse_args()
-    result = analyze(args.directory)
+    result = analyze(args.directory, tuple(args.models), args.seed_start)
     text = json.dumps(result, indent=2)
     if args.output:
         with args.output.open('x') as handle:

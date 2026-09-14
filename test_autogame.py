@@ -14,6 +14,7 @@ from unittest.mock import Mock, patch
 
 import autogame
 import bot_ai
+import geometry
 import simulation
 import events
 from rl.headless import HeadlessRunner, load_boat
@@ -34,9 +35,12 @@ class AutogameTest(unittest.TestCase):
         return copy.deepcopy(self.specs[kind])
 
     def prepare(self, data: object) -> list:
+        return self.prepare_scenario(data).boats
+
+    def prepare_scenario(self, data: object) -> autogame.PreparedAutogame:
         with patch.object(Path, "open", return_value=io.StringIO(json.dumps(data))):
             return autogame.prepare_autogame(Path("autogame.json"), "world",
-                                            self.world, self.load_boat).boats
+                                             self.world, self.load_boat)
 
     def namespace(self) -> dict:
         legacy = self.runner.legacy
@@ -123,6 +127,20 @@ class AutogameTest(unittest.TestCase):
         for delay in (0, 0.5, 30):
             self.assertEqual(1, len(self.prepare(dict(boats=[self.entry], startDelaySeconds=delay))))
         self.assertEqual([], self.prepare(dict(boats=[], startDelaySeconds=0)))
+
+    def test_display_path_validation(self) -> None:
+        defaults = self.prepare_scenario({"boats": [self.entry]})
+        self.assertEqual(0, defaults.display_path)
+        self.assertEqual(0, defaults.manual_checkpoint)
+        for value in (0, 1):
+            scenario = self.prepare_scenario({"boats": [self.entry], "displayPath": value})
+            self.assertEqual(value, scenario.display_path)
+            scenario = self.prepare_scenario({"boats": [self.entry], "manualCheckpoint": value})
+            self.assertEqual(value, scenario.manual_checkpoint)
+        for value in (None, False, True, -1, 2, 0.5, "1", [], {}):
+            for field in ("displayPath", "manualCheckpoint"):
+                with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                    self.prepare({"boats": [self.entry], field: value})
 
     def test_real_spawn_exact_initial_state_and_teams(self) -> None:
         sub = dict(self.entry, boatType="submarine", ai="autosub", teamId="blue",
@@ -229,7 +247,52 @@ class AutogameTest(unittest.TestCase):
             ns = self.namespace()
             ns["spawn_bot"](**prepared[0])
             bot = next(iter(ns["bots"].values()))
-            self.assertIs(controller, bot["rl_controller"])
+        self.assertIs(controller, bot["rl_controller"])
+
+    def test_waypoint_model_preloads_goal_and_rejects_too_small_map(self) -> None:
+        from rl.rl_control import control_spec
+        from rl.waypoints import (
+            WAYPOINT_ISLAND_CLEARANCE_M,
+            WAYPOINT_MAX_DISTANCE_M,
+            WAYPOINT_MIN_DISTANCE_M,
+        )
+
+        _, dimension, nvec = control_spec("destroyer", "destroyer_duel_v5")
+        model = SimpleNamespace(
+            observation_space=SimpleNamespace(shape=(dimension,)),
+            action_space=SimpleNamespace(nvec=nvec),
+            rl_control_version="destroyer_duel_v5",
+        )
+        entry = dict(
+            self.entry, ai="rl_waypoint_model",
+            position=dict(x=-100, y=-0.2, z=600))
+        self.world = json.loads(Path("maps/world.json").read_text())
+        with patch("rl.rl_runtime.load_model", return_value=model):
+            prepared = self.prepare({"map": "world", "boats": [entry]})[0]
+        waypoint = prepared["prepared_ai"]["rl_waypoint"]
+        distance_m = math.hypot(
+            waypoint["x"] - entry["position"]["x"],
+            waypoint["z"] - entry["position"]["z"]) * simulation.UNIT_METERS_BOT
+        self.assertGreaterEqual(distance_m, WAYPOINT_MIN_DISTANCE_M)
+        self.assertLessEqual(distance_m, WAYPOINT_MAX_DISTANCE_M)
+        self.assertGreaterEqual(
+            geometry.min_distance_to_islands(
+                waypoint["x"], waypoint["z"], self.world) * simulation.UNIT_METERS_BOT,
+            WAYPOINT_ISLAND_CLEARANCE_M)
+        self.assertTrue(geometry.line_of_sight_clear(
+            entry["position"]["x"], entry["position"]["z"],
+            waypoint["x"], waypoint["z"], self.world))
+
+        with patch("rl.rl_runtime.load_model", return_value=model):
+            manual = self.prepare({
+                "map": "world", "boats": [entry], "manualCheckpoint": 1})[0]
+        self.assertTrue(manual["prepared_ai"]["rl_manual_checkpoint"])
+        self.assertIsNone(manual["prepared_ai"]["rl_waypoint"])
+
+        self.world = self.runner.world
+        with patch("rl.rl_runtime.load_model", return_value=model), \
+                self.assertRaisesRegex(RuntimeError, "aucun objectif RL"):
+            self.prepare({"boats": [dict(self.entry, ai="rl_waypoint_model")]})
             self.assertEqual(-0.2, bot["control_target_depth_y"])
             self.assertEqual(1, loader.call_count)
 
@@ -238,8 +301,12 @@ class AutogameTest(unittest.TestCase):
         ns.update(__file__=str(Path("server.py").resolve()), __name__="test_autogame",
                   sys=SimpleNamespace(modules={"test_autogame": self.runner.legacy}),
                   current_map_name="world", MAX_BOTS=32)
-        with patch.object(Path, "open", return_value=io.StringIO(json.dumps({"boats": [self.entry]}))):
+        with patch.object(Path, "open", return_value=io.StringIO(json.dumps(
+                {"boats": [self.entry], "displayPath": 1, "manualCheckpoint": 1}))):
             ns["initialize_autogame"]()
+        self.assertTrue(ns["autogame_mode"])
+        self.assertEqual(1, ns["autogame_display_path"])
+        self.assertEqual(1, ns["autogame_manual_checkpoint"])
         self.assertIsInstance(ns["sim"], simulation.Sim)
         self.assertEqual(1, len(ns["sim"].bots))
         ns["spawn_bot"] = Mock()

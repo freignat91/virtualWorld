@@ -2,46 +2,135 @@
 
 Document de référence pour comprendre le fonctionnement client/serveur du jeu, les events réseau, les pipelines de tir, et les responsabilités de chaque côté.
 
-## Etape 3 Torpilles Sans Cible (2026-09-09)
+## Runtime De Mobilite V16 Officiel (2026-09-14)
 
-Absence de `targetId` (ou null) et de point manuel/memorise : les lanceurs humains
-et `Sim.spawn_bot_torpedo[_autonomous]` acceptent un tir dans l'axe, avec
-`initialTarget=None`, `targetId=None`, pitch zero et profondeur native conservee.
-Aucun endpoint fictif ni lookup de cible cachee. Le controle de distance au point
-est saute uniquement sans point ; `maxRange`, sorties de carte et collisions
-restent natifs. Tout ID explicite invalide, inconnu ou masque par une ile est
-rejete, meme accompagne d'un point fixe ; aucun fallback aveugle dans ce cas.
-Les points connus copies et toutes les regles de selection/LOS existantes restent.
+Les selections publiques finales sont `aisub_mobility_runtime_v16` et
+`aidest_mobility_runtime_v16`. Chaque version possede son code fige sous
+`rl/bot_versions/v16/`, son manifeste SHA256 et ses propres copies physiques de
+modeles ; v15 reste independante et inchangee. Les rayons d'arrivee final et
+intermediaire valent500 m.
 
-Avant activation, sans point : cap et profondeur tenus, aucun capteur. Apres
-activation : acquisition acoustique/radar native seulement (cone, bruit/portee,
-LOS, thermoclines), puis guidage et evitement existants. Activation humaine saisie
-et clampee inchangee ; sans contact RL, activation du JSON (actuellement 500 m),
-pas l'heuristique 500/200 m reservee aux contacts. Offset bot 4 m/humain 15 m et
-profondeurs de lancement distinctes restent hors scope. La filoguidee humaine
-sans cible garde le pilotage manuel, l'exclusivite et la destruction existants.
+Pour une destination distante de plus de7,5 km, le planificateur cherche d'abord
+le nombre minimal de points intermediaires sur l'axe depart-arrivee. Chaque point
+doit conserver500 m de marge avec les iles et limites, et chaque segment reste au
+plus long de7,5 km. Si aucun decoupage aligne n'est possible, la segmentation du
+plus court chemin Dijkstra sert de repli. La trace `route_planned` conserve route
+exposee, chemin Dijkstra, distances et ratios pour les diagnostics.
 
-UI : premier clic sans selection ouvre la visee, clic radar = point fixe,
-second clic sur le meme type = tir dans l'axe, ESC = annulation. Le bandeau
-explicite ces choix ; aucun label ne pretend qu'une cible est acquise.
-RL : actions armes 1/2 autorisees sans contact si munitions/cooldown disponibles,
-dimensions/versions et rewards inchanges, cooldown 4 s. BT : action directe
-`fire_torpedo_at_audible` peut tirer sans contact, cooldown natif 8 s respecte ;
-contacts hors portee ne deviennent pas un tir aveugle. Les conditions des arbres
-et le FSM `attack_torpedo_at_known` restent tactiquement dependants des contacts.
+La validation CPU deterministe de20 routes utilise les seeds533542 destroyer et
+523542 sous-marin, un timeout de1200 s et le curriculum de routes v14. Les deux
+coques atteignent100% d'arrivee,100% face aux obstacles,0 naufrage/blocage et
+aucune demande d'arme, leurre ou sonar. Le sous-marin passe toutes les gates. Le
+destroyer echoue uniquement la gate cotiere avec1 episode sur20,3,65 points de
+degat ; cette limite residuelle est acceptee explicitement pour la selection
+finale. V16 est desormais officielle et en lecture seule : aucun nouvel
+entrainement de mobilite ni modification de son code, ses modeles ou manifests.
 
-Regressions : `rl/test_targetless_torpedo.py`, handlers AST dans
-`test_server_fire_los.py`, `tests/test_targetless_torpedo.js`, plus suites existantes.
-Les politiques existantes peuvent gaspiller davantage de munitions : consequence
-attendue, aucune compensation reward. Tous les scores historiques sont non
-directement comparables ; aucune evaluation, formation, modification de modele,
-ecoute serveur, livraison ou commit. Equite globale et parite navigateur/mobile
-non prouvees. Cette section remplace les mentions historiques « etape 3 differee ».
+## Discipline RL Des Leurres Et Du Gouvernail (2026-09-12)
 
-Verification locale etape 3 : 241 tests Python passes sans skip, avec
-`OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1` et le venv existant ;
-9 harnesses Node passes plus spectateur `--empty`, dont 32 controles client
-targetless. Syntaxe JS, compilation Python ciblee et `git diff --check` passes.
+L'observation RL renseigne `rl_torpedo_detected` depuis le meme radar local que
+les slots de torpilles, sans nouveau scan ni identite privee. Un leurre reellement
+largue sans aucune torpille visible recoit `lure_without_threat=-0.1`, en plus du
+cout normal du leurre. Une demande refusee par cooldown ou manque de stock ne
+recoit pas cette penalite, puisqu'aucun leurre n'est lance.
+
+Dans `MobilityEnv`, au-dela de100 m des iles et limites du monde, le gouvernail
+sans torpille detectee cumule `rudder_use=-0.01` et un surcout multiplie par son
+ratio absolu. Les nouveaux plans v5 utilisent `rudder_without_threat=-0.1` pour
+le destroyer et conservent `-0.05` pour le sous-marin. Avec une menace, seul le
+cout normal s'applique. A100 m ou moins, les deux couts sont suspendus pour
+conserver les manoeuvres d'evitement. Le surcout n'est pas applique au duel, ou
+un virage sans torpille peut poursuivre une cible de combat.
+
+La mobilite v5 ajoute un bonus de vitesse avant, sans bonus en marche arriere.
+Jusqu'au `speedNoiseLimit` de la coque, chaque unite de ratio de vitesse rapporte
+`silent_speed_ratio=0.02` par decision. Au-dela, seule la fraction excedentaire
+rapporte `noisy_speed_ratio=0.005`. Le seuil natif vaut0.4 pour le destroyer et
+0.8 pour le sous-marin ; le bonus reste donc continu mais sa pente est quatre
+fois plus faible apres la vitesse silencieuse.
+
+Pour les nouveaux plans v6, le surcout de gouvernail sans menace revient a-0.05
+pour les deux coques et la rectitude minimale d'admission passe a0.5. Les gates
+de completion sont remplacees par des causes explicites sur100 episodes : aucun
+naufrage et au plus deux blocages. Les taux de completion restent reportes mais
+ne participent plus a l'admission.
+
+`lure_without_threat` qualifie desormais toute demande de leurre sans torpille
+visible, meme si le cooldown interdit le largage. En mobilite v6, cette demande
+coute-0.2 en plus du cout de demande-0.01 ; une torpille visible supprime seulement
+le surcout sans menace.
+
+Les pilotes v6 termines confirment les nouveaux comptes mais ne passent pas les
+gates : le destroyer n'a aucun naufrage/blocage et atteint0.963 de rectitude, mais
+recule toujours a vitesse0.346 ; le sous-marin reste stationnaire et bloque dans
+les100 evaluations. Aucun `best/` n'est produit.
+
+La mobilite v7 ne recompense `movement_per_meter` que lorsque la vitesse reelle
+est positive. Hors de la zone cotiere100 m, `reverse_per_meter` passe a-0.05 :
+le recul n'obtient plus le bonus+0.01 et coute donc reellement-0.05/m au lieu de
+-0.02/m. Dans la zone d'exemption, il est neutre afin de conserver une marche
+arriere d'urgence, mais ne produit jamais de recompense de distance.
+
+Les deux pilotes v7 termines convergent neanmoins vers le recul deterministe :
+99.909% des decisions destroyer et100% des decisions sous-marin, a environ0.346
+de vitesse absolue. Ils atteignent100% de completion, une rectitude1.0 et0
+blocage/naufrage, mais echouent tous deux les gates vitesse et recul. Aucun
+`best/` n'est produit.
+
+Depuis la mobilite v8, la rectitude ignore entierement les segments en marche
+arriere. L'environnement cumule le vecteur et la longueur de chaque segment dont
+la vitesse reelle est positive, puis calcule `norme(vecteur cumule) / longueur
+avant`. Sans trajet avant, la rectitude vaut0. Le trajet total reste disponible
+separement et la gate de recul conserve sa propre fraction de decisions.
+
+Les deux pilotes frais v5 ont termine106496 pas. Le destroyer atteint une
+rectitude1.0 mais regresse a71% de completion et42% face aux obstacles ; le
+sous-marin atteint une vitesse0.971 et99% de completion mais retombe a0.087 de
+rectitude. Aucun ne passe toutes les gates et aucun `best/` n'est produit.
+
+Les nouveaux plans de mobilite acceptent au maximum1% d'episodes avec degat
+cotier, borne incluse, au lieu d'exiger zero. Les autres gates restent inchangees.
+
+Les champs de resultat et traces exposent uniquement le booleen
+`lure_without_threat`. Les dimensions d'observation/action restent inchangees.
+Les61 tests cibles anterieurs puis15 tests finaux de mobilite, compilation Python
+et `git diff --check` passent. Les pilotes v3 ont termine avant le renforcement
+du gouvernail et la nouvelle gate ; leurs resultats restent historiques. Les deux
+pilotes v4 ont ensuite termine106496 pas chacun : le destroyer selectionne75k mais
+echoue rectitude/leurre, et le sous-marin selectionne75k mais echoue vitesse/
+rectitude. Aucun `best/`, processus, prolongement, promotion ou deploiement.
+
+## Torpilles Avec Cible Selectionnee (2026-09-12)
+
+Tout lancement humain, BT ou RL exige une cible explicite. Un humain peut
+selectionner un contact autorise ou un point fixe sur le radar ; le serveur
+rejette une intention sans `targetId` valide et sans `fixedTarget`. Un ID
+explicite invalide, inconnu ou masque par une ile reste rejete, sans repli vers
+le point fixe. Le premier clic sans selection ouvre seulement la visee, un clic
+radar fixe le point et ESC annule ; recliquer sur l'arme ne tire plus dans l'axe.
+
+`Sim.spawn_bot_torpedo` et `spawn_bot_torpedo_autonomous` refusent une cible
+absente avant de consommer munition ou cooldown. L'action BT directe echoue sans
+contact selectionne. Les actions RL acoustique/autonome sont invalides sans
+contact frais exploitable et ne lancent aucun projectile. Chaque demande ainsi
+refusee cumule le cout invalide generique `weapon_invalid=-0.005` et la penalite
+dediee `weapon_without_acquisition=-0.1` par defaut. Les dimensions et versions
+d'observation/action ne changent pas.
+
+Avec une cible valide, les copies de position, caps et profondeurs de lancement,
+activation, guidage, capteurs, LOS, thermoclines, portee, sorties de carte et
+collisions restent inchanges. La filoguidee conserve son pilotage manuel et son
+exclusivite, mais exige elle aussi une cible initiale selectionnee.
+
+Regressions : `rl/test_torpedo_target_requirement.py`, handlers AST dans
+`test_server_fire_los.py`, `tests/test_torpedo_target_requirement.js`, plus les
+suites torpille existantes. Cette règle remplace le comportement targetless du
+9 septembre ; les evaluations realisees sous cette ancienne regle restent des
+resultats historiques et ne sont pas directement comparables.
+
+Verification locale : 315 tests Python passent sans skip avec les limites de
+threads a 1 ; les 9 harnesses Node et la variante spectateur vide passent aussi.
+Compilation Python ciblee, syntaxe JS et `git diff --check` passent.
 
 ## Trois Corrections Ciblees D'Equite (2026-09-09)
 
@@ -197,8 +286,9 @@ Le serveur lit `autogame.json` a la racine du depot uniquement avec `--autogame`
 (booleen, desactive par defaut), une seule fois au demarrage, apres selection de
 la carte et avant les taches de fond et
 l'ecoute HTTPS. `{"boats": []}` reste le scenario vide ; le fichier local autorise
-contient actuellement destroyer v3 / sous-marin v15, preparation 30 s,
-`anyBoatSunk` et `maxDurationSeconds: 600`, aux positions deja autorisees.
+contient actuellement les runtimes de mobilite v16 officiels, preparation30 s,
+checkpoints manuels affiches, `anyBoatSunk` et `maxDurationSeconds: 60000`, aux
+positions deja autorisees.
 Sans ce flag, aucune lecture ni validation du fichier, aucun prechargement d'IA
 ni spawn du scenario, meme si le fichier est absent ou invalide.
 Pas de creation a la connexion d'un client, ni de relecture au changement de carte.
@@ -370,6 +460,12 @@ Tests : `test_autogame.py` (CLI opt-in, absence d'I/O sans flag, ordre de demarr
 validation, vrais spawn/hook serveur extraits par AST,
 Sim et munitions headless, positions monde), `test_integrity.py` (humain/BT/RL,
 miroirs distincts, souffle propre/collateral). Ni transport ni partie live testes.
+
+Danger cotier : la couronne `DANGER_ZONE_OFFSET` de30 m retire1 point
+d'integrite par seconde aux humains, BT et RL. Les bots etaient auparavant
+exclus par `update_player_integrity`, ce qui rendait autogame et apprentissage
+incoherents avec le jeu humain. Les degats bots utilisent maintenant
+`bot_apply_damage` et ses evenements/synchronisations/naufrages natifs.
 
 ## Trace serveur JSONL (2026-09-09)
 
@@ -1489,6 +1585,13 @@ Flask. Il réutilise directement `simulation.Sim` grâce à `rl/headless.py` : l
 règles d'armement, de dégâts, de sonar et de leurres sont donc celles du jeu
 autoritaire. `rl/TRAINING_RL.md` décrit les commandes et le diagnostic en détail.
 
+Le premier curriculum comportemental est la navigation pure. `rl/navigation_env.py`
+place un destroyer seul sur `world` avec une destination derriere au moins une
+ile, une observation `navigation_v1` de13 valeurs et deux actions
+gouvernail/puissance. La progression suit le plus court chemin navigable ; les
+gates portent sur arrivee, degats cotiers, blocage, immobilite et efficacite du
+trajet, jamais sur une victoire. Voir `rl/NAVIGATION_CURRICULUM.md`.
+
 La configuration `aisub_v14` entraîne un sous-marin.
 Les adversaires BT sont configurés par coque, IA et poids. La politique reste
 toujours un sous-marin ; elle affronte à parts égales `submarine/autosub` et
@@ -1840,3 +1943,52 @@ obtient 65/35/100 contre `autosub` et 55/128/17 contre `aisub_v15` ; v3 obtient
 respectivement 32/5/163 et 58/128/14. Les deux modèles atteignent exactement
 44,625 % au score agrégé. V4 ne satisfait donc pas le gain minimal de trois
 points et n'est pas promu ; le bouton `Destroyer IA` reste sur v3.
+
+### Phase 6 : observation defensive multi-objets
+
+`destroyer_duel_v3` remplace la menace de torpille unique par six slots de
+trajectoires et ajoute six slots de leurres. Une torpille fournit presence,
+position et vitesse relatives au destroyer, CPA et ETA sur dix secondes. Les
+menaces futures a moins de 200 m de CPA passent avant les autres trajectoires
+radar, puis les objets recedants proches. Le type, la cible et le verrou ne sont
+jamais exposes. Portee radar, iles et thermoclines filtrent chaque torpille avant
+le classement.
+
+Un leurre fournit presence, position relative, duree restante et propriete. Le
+destroyer connait ses propres leurres statiques ; les leurres adverses ne sont
+observes que dans le radar avec LOS et sans thermocline. Six slots de chaque type
+bornent l'observation a101 valeurs ; huit rayons anticollision terminent le
+vecteur.
+
+L'action redevient `MultiDiscrete([5, 5, 5, 2, 2])` : les mines sont retirees de
+la policy, pas du jeu. Les humains, BT et anciens modeles v2 gardent leurs regles
+et capacites. Les espaces v3 sont incompatibles avec tous les checkpoints
+destroyer precedents ; `aidest_v7_defense.json` prepare donc un modele neuf.
+Aucun entrainement ou changement de production n'est implique par cette
+preparation.
+
+### Phase 7 : interfaces finales et mobilite seule
+
+`sub_duel_v2` et `destroyer_duel_v4` conservent les actions runtime completes et
+portent respectivement169 et173 observations. Chaque interface expose six
+torpilles radar avec position/vitesse relatives, CPA/ETA et type public encode
+parmi acoustique, autonome et filoguidee, sans cible ni verrou prive. Elles
+ajoutent six leurres, six trajectoires publiques de grenades et conservent les
+huit rayons cotiers a1000 m ainsi que l'integrite propre normalisee.
+
+Le contact adverse unique reste le plus proche parmi les detections valides. Le
+sonar actif/passif traite les coques immergees. Un contact visuel est ajoute
+uniquement lorsque l'observateur et la cible sont tous deux en surface selon le
+seuil natif de flottaison et que leur segment XZ ne rencontre aucune ile. Si une
+seule coque est immergee, la geometrie visuelle ne revele aucune position.
+
+`MobilityEnv` place un seul agent sur `world`, en eau libre ou face a une ile.
+Il n'ajoute ni adversaire, ni waypoint, ni masque, ni bouclier et transmet chaque
+action telle quelle a `apply_action`. Les torpilles propres restent exclues des
+slots de menace. `rl.train_mobility` impose les nouvelles interfaces et un
+demarrage sans checkpoint ; les sorties `candidate/` et `best/` restent
+separees et `best/` n'est cree qu'apres tous les gates comportementaux.
+Les penalites de marche arriere et de gouvernail sont suspendues strictement a
+moins de100 m d'une ile ou d'une limite du monde pour laisser l'agent faire
+demi-tour ou reculer. Cette exemption ne retire ni la penalite de proximite, ni
+les degats cotiers natifs.

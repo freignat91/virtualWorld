@@ -129,29 +129,15 @@ class ServerFireLosTest(unittest.TestCase):
         self.assertFalse(self.ns["torpedoes_server"])
         self.assertEqual([], self.io.mock_calls)
 
-    def test_blind_all_kinds_and_explicit_invalid_ids(self) -> None:
+    def test_missing_target_and_explicit_invalid_ids_are_rejected(self) -> None:
         for kind in ("acoustic", "autonomous", "wireGuided"):
-            launches = []
-            for x in (-60, -200):
-                self.setUp()
-                self.position["x"] = x
-                self.ns["handle_torpedo_fire"]({"kind": kind})
-                t = next(iter(self.ns["torpedoes_server"].values()))
-                self.assertIsNone(t["initialTarget"])
-                self.assertIsNone(t["targetId"])
-                self.assertEqual((-1, 0, 0), (t["dirX"], t["dirZ"], t["pitch"]))
-                self.assertEqual(4, self.ns["torpedo_ammo"]["sid"][kind])
-                self.assertFalse(t["inAcquisition"])
-                launches.append(copy.deepcopy(t))
-                if kind == "wireGuided":
-                    self.assertIn("human", self.ns["active_wire_torpedoes"])
-                    self.ns["handle_torpedo_fire"]({"kind": kind})
-                    self.assertEqual(1, len(self.ns["torpedoes_server"]))
-            self.assertEqual(*launches)
-            for invalid in ("missing", "", False, 0):
+            for invalid in (None, "missing", "", False, 0):
                 self.setUp()
                 before = self.state()
-                self.ns["handle_torpedo_fire"]({"kind": kind, "targetId": invalid})
+                intent = {"kind": kind}
+                if invalid is not None:
+                    intent["targetId"] = invalid
+                self.ns["handle_torpedo_fire"](intent)
                 self.assertEqual(before, self.state())
                 self.assertEqual([], self.io.mock_calls)
 
@@ -169,7 +155,7 @@ class ServerFireLosTest(unittest.TestCase):
                     self.assertEqual(0, t["traveled"])
                     self.assertAlmostEqual(spec["speed"] * 0.514444 / 10, t["speed"])
 
-    def test_blind_wire_keeps_manual_steering_in_real_sim(self) -> None:
+    def test_targeted_wire_keeps_manual_steering_in_real_sim(self) -> None:
         import random
         from rl.headless import HeadlessRunner
 
@@ -177,7 +163,8 @@ class ServerFireLosTest(unittest.TestCase):
         self.addCleanup(random.setstate, state)
         runner = HeadlessRunner(seed=73)
         runner.world.update(islands=[], thermoclines=[])
-        self.ns["handle_torpedo_fire"]({"kind": "wireGuided"})
+        self.ns["handle_torpedo_fire"]({
+            "kind": "wireGuided", "fixedTarget": {"x": -60, "z": 0}})
         t = next(iter(self.ns["torpedoes_server"].values()))
         key = (t["ownerPlayerId"], t["tid"])
         runner.sim.torpedoes[key] = t
@@ -187,10 +174,10 @@ class ServerFireLosTest(unittest.TestCase):
         self.assertGreater(t["dirZ"], 0)
         self.assertLess(t["pitch"], 0)
         self.assertLess(t["y"], -0.3)
-        self.assertIsNone(t["initialTarget"])
+        self.assertEqual((-60, 0.0, 0), t["initialTarget"])
         self.assertIsNone(t["acquiredBoatId"])
 
-    def test_blind_launch_uses_native_human_depth_and_activation(self) -> None:
+    def test_selected_point_launch_uses_native_human_depth_and_activation(self) -> None:
         for boat_type in ("destroyer", "submarine"):
             boat = json.loads((Path(__file__).parent / "boats" / (boat_type + ".json")).read_text())
             for kind, spec in boat["torpedoes"].items():
@@ -198,15 +185,16 @@ class ServerFireLosTest(unittest.TestCase):
                     self.setUp()
                     self.shooter.update(boatType=boat_type, boat=boat)
                     self.shooter["position"]["y"] = -12.0
-                    self.ns["handle_torpedo_fire"]({"kind": kind, "targetId": None,
-                                                   "activationMeters": activation})
+                    self.ns["handle_torpedo_fire"]({
+                        "kind": kind, "fixedTarget": {"x": -60, "z": 0},
+                        "activationMeters": activation})
                     t = next(iter(self.ns["torpedoes_server"].values()))
                     self.assertEqual(-0.3 if boat_type == "destroyer" else -12.0, t["y"])
                     self.assertEqual((spec["activation"] if activation is None else activation) / 10,
                                      t["activation"])
                     self.assertEqual(spec["maxRangeMeters"] / 10, t["maxRange"])
                     self.assertEqual(-1.5, t["x"])
-                    self.assertIsNone(t["initialTarget"])
+                    self.assertEqual((-60, 0.0, 0), t["initialTarget"])
 
 
 if __name__ == "__main__":

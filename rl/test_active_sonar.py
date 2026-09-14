@@ -71,11 +71,9 @@ class ActiveSonarTest(unittest.TestCase):
                     action = [2, 1, 1, 0, 1] + ([0] if index == 18 else [])
                     result = apply_action(self.bot, self.runner.sim, action)
                     self.assertTrue(result["sonar_pinged"])
-                    self.assertTrue(result["weapon_fired"])
-                    self.assertFalse(result["weapon_invalid"])
-                    torpedo = next(iter(self.runner.sim.torpedoes.values()))
-                    self.assertIsNone(torpedo["initialTarget"])
-                    self.assertIsNone(torpedo["targetId"])
+                    self.assertFalse(result["weapon_fired"])
+                    self.assertTrue(result["weapon_invalid"])
+                    self.assertFalse(self.runner.sim.torpedoes)
                     np.testing.assert_array_equal(np.zeros(7), self.observe()[index:index + 7])
                     self.at(arrival - 1e-6)
                     self.assertEqual(0, self.observe()[index])
@@ -83,6 +81,14 @@ class ActiveSonarTest(unittest.TestCase):
                     self.assertEqual(1, self.observe()[index])
                     self.assertEqual(self.target["id"], self.bot["rl_contact"]["id"])
                     self.assertEqual(arrival + 10, self.bot["rl_contact"]["active_detected_until"])
+                    result = apply_action(self.bot, self.runner.sim, action[:2] + [1, 0, 0]
+                                          + ([0] if index == 18 else []))
+                    self.assertTrue(result["weapon_fired"])
+                    self.assertFalse(result["weapon_invalid"])
+                    torpedo = next(iter(self.runner.sim.torpedoes.values()))
+                    self.assertEqual(tuple(self.target["position"][axis] for axis in ("x", "y", "z")),
+                                     torpedo["initialTarget"])
+                    self.assertIsNone(torpedo["targetId"])
         for distance in (8000, 8001):
             self.scene(distance)
             self.ping()
@@ -163,10 +169,9 @@ class ActiveSonarTest(unittest.TestCase):
         self.assertEqual(1800, self.bot["rl_contact"]["x"])
         # Meme un souvenir de moins d'une seconde ne suit pas la cible expiree.
         result = apply_action(self.bot, self.runner.sim, [2, 1, 1, 0, 0, 0])
-        self.assertTrue(result["weapon_fired"])
-        torpedo = next(iter(self.runner.sim.torpedoes.values()))
-        self.assertIsNone(torpedo["initialTarget"])
-        self.assertIsNone(torpedo["targetId"])
+        self.assertFalse(result["weapon_fired"])
+        self.assertTrue(result["weapon_invalid"])
+        self.assertFalse(self.runner.sim.torpedoes)
         self.at(until + 30)
         np.testing.assert_array_equal(np.zeros(7), self.observe()[18:25])
         self.assertNotIn("rl_contact", self.bot)
@@ -297,12 +302,13 @@ class ActiveSonarTest(unittest.TestCase):
         self.bot["rl_controller"] = RuntimeController(Policy())
         for t in (0, 0.25, 0.5, 0.625):
             self.at(t)
-        self.assertEqual(1, len(runner.sim.torpedoes))
-        torpedo = next(iter(runner.sim.torpedoes.values()))
-        self.assertIsNone(torpedo["initialTarget"])
-        self.assertIsNone(torpedo["targetId"])
+        self.assertFalse(runner.sim.torpedoes)
         self.at(0.75)
         self.assertEqual(1, len(runner.sim.torpedoes))
+        torpedo = next(iter(runner.sim.torpedoes.values()))
+        self.assertEqual(tuple(self.target["position"][axis] for axis in ("x", "y", "z")),
+                         torpedo["initialTarget"])
+        self.assertIsNone(torpedo["targetId"])
         self.assertEqual([0, 0, 0, 1], [obs[18] for _, obs in observations])
 
     def test_distinct_targets_roll_once_and_reset_clears_pending_and_revealed(self) -> None:

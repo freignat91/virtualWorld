@@ -94,6 +94,23 @@ class IntegrityTest(unittest.TestCase):
         self.sim.init_player_integrity("secondary")
         self.assertEqual((100, 100), (player["integrity"], player["maxIntegrity"]))
 
+    def test_coastal_danger_damages_humans_and_bots_equally(self) -> None:
+        self.runner.world["islands"] = [{"points": [
+            {"x": -1.0, "z": -1.0}, {"x": 1.0, "z": -1.0},
+            {"x": 1.0, "z": 1.0}, {"x": -1.0, "z": 1.0},
+        ]}]
+        human = self.human()
+        human["position"].update(x=2.0, z=0.0)
+        bot_sid = self.runner.spawn_bot(
+            "destroyer", external_control=True, position=(2.0, 0.0))
+        bot = self.sim.bots[bot_sid]
+
+        self.sim.update_player_integrity(1.5, self.runner.world)
+
+        self.assertEqual(198.5, human["integrity"])
+        self.assertEqual(198.5, bot["integrity"])
+        self.assertEqual(198.5, self.sim.players[bot_sid]["integrity"])
+
     def test_reset_has_no_phantom_reward_and_damage_remains_absolute(self) -> None:
         env = SubmarineDuelEnv(agent_boat_type="destroyer", control_version="destroyer_duel_v2",
             opponents=[dict(boat_type="destroyer", ai="default")],
@@ -230,7 +247,8 @@ class IntegrityTest(unittest.TestCase):
             uuid=SimpleNamespace(uuid4=lambda: "human-id"),
             time=SimpleNamespace(time=self.sim.now), random=self.runner.random,
             load_world=lambda: self.runner.world, _random_spawn_on_nav_graph=lambda *args: (0, 0),
-            config={}, BOT_RL_MODELS={}, day_cycle_snapshot=lambda: {},
+            config={}, BOT_RL_MODELS={}, autogame_mode=False,
+            day_cycle_snapshot=lambda: {},
             sonar_beacons={}, passive_sonar_beacons={}, mines_server={},
             player_boats_sids={}, emit=io.emit, socketio=io,
             init_player_integrity=self.sim.init_player_integrity,

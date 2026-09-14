@@ -1,0 +1,40 @@
+boat_type,observation_version,action_space,component_index,component,choice_index,target_ratio,target_depth_m,effect
+submarine,sub_duel_v3,[5 5 5 3 2],0,rudder,0,-1,,full port
+submarine,sub_duel_v3,[5 5 5 3 2],0,rudder,1,-0.5,,half port
+submarine,sub_duel_v3,[5 5 5 3 2],0,rudder,2,0,,centered
+submarine,sub_duel_v3,[5 5 5 3 2],0,rudder,3,0.5,,half starboard
+submarine,sub_duel_v3,[5 5 5 3 2],0,rudder,4,1,,full starboard
+submarine,sub_duel_v3,[5 5 5 3 2],1,throttle,0,-1,,full reverse
+submarine,sub_duel_v3,[5 5 5 3 2],1,throttle,1,0,,stop
+submarine,sub_duel_v3,[5 5 5 3 2],1,throttle,2,0.35,,ahead at 35 percent
+submarine,sub_duel_v3,[5 5 5 3 2],1,throttle,3,0.65,,ahead at 65 percent
+submarine,sub_duel_v3,[5 5 5 3 2],1,throttle,4,1,,full ahead
+submarine,sub_duel_v3,[5 5 5 3 2],2,depth,0,0.01,4.5,set target depth
+submarine,sub_duel_v3,[5 5 5 3 2],2,depth,1,0.08,36,set target depth
+submarine,sub_duel_v3,[5 5 5 3 2],2,depth,2,0.25,112.5,set target depth
+submarine,sub_duel_v3,[5 5 5 3 2],2,depth,3,0.45,202.5,set target depth
+submarine,sub_duel_v3,[5 5 5 3 2],2,depth,4,0.70,315,set target depth
+submarine,sub_duel_v3,[5 5 5 3 2],3,weapon,0,,,none
+submarine,sub_duel_v3,[5 5 5 3 2],3,weapon,1,,,request acoustic torpedo
+submarine,sub_duel_v3,[5 5 5 3 2],3,weapon,2,,,request autonomous torpedo
+submarine,sub_duel_v3,[5 5 5 3 2],4,lure,0,,,none
+submarine,sub_duel_v3,[5 5 5 3 2],4,lure,1,,,request lure drop
+destroyer,destroyer_duel_v5,[5 5 5 2 2],0,rudder,0,-1,,full port
+destroyer,destroyer_duel_v5,[5 5 5 2 2],0,rudder,1,-0.5,,half port
+destroyer,destroyer_duel_v5,[5 5 5 2 2],0,rudder,2,0,,centered
+destroyer,destroyer_duel_v5,[5 5 5 2 2],0,rudder,3,0.5,,half starboard
+destroyer,destroyer_duel_v5,[5 5 5 2 2],0,rudder,4,1,,full starboard
+destroyer,destroyer_duel_v5,[5 5 5 2 2],1,throttle,0,-1,,full reverse
+destroyer,destroyer_duel_v5,[5 5 5 2 2],1,throttle,1,0,,stop
+destroyer,destroyer_duel_v5,[5 5 5 2 2],1,throttle,2,0.35,,ahead at 35 percent
+destroyer,destroyer_duel_v5,[5 5 5 2 2],1,throttle,3,0.65,,ahead at 65 percent
+destroyer,destroyer_duel_v5,[5 5 5 2 2],1,throttle,4,1,,full ahead
+destroyer,destroyer_duel_v5,[5 5 5 2 2],2,weapon,0,,,none
+destroyer,destroyer_duel_v5,[5 5 5 2 2],2,weapon,1,,,request acoustic torpedo
+destroyer,destroyer_duel_v5,[5 5 5 2 2],2,weapon,2,,,request autonomous torpedo
+destroyer,destroyer_duel_v5,[5 5 5 2 2],2,weapon,3,,,request cannon fire
+destroyer,destroyer_duel_v5,[5 5 5 2 2],2,weapon,4,,,request grenade launch
+destroyer,destroyer_duel_v5,[5 5 5 2 2],3,lure,0,,,none
+destroyer,destroyer_duel_v5,[5 5 5 2 2],3,lure,1,,,request lure drop
+destroyer,destroyer_duel_v5,[5 5 5 2 2],4,active_sonar,0,,,none
+destroyer,destroyer_duel_v5,[5 5 5 2 2],4,active_sonar,1,,,request active sonar ping

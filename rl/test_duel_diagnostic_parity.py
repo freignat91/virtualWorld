@@ -43,7 +43,8 @@ class ParityTests(unittest.TestCase):
             self.assertEqual(result['first']['outcome'], info['outcome'])
             self.assertEqual(result['first']['tick'], info['physics_steps'])
             self.assertEqual(result['first']['ammo']['bot001']['torpedo_ammo'], stock)
-            self.assertEqual(result['first']['counts']['first:bot001:weapon_fired'], info['weapons'])
+            self.assertEqual(result['first']['counts'].get('first:bot001:weapon_fired', 0),
+                             info['weapons'])
         finally:
             diagnostic.close()
 

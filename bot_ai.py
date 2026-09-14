@@ -643,7 +643,7 @@ def act_sonar_ping(ctx, params):
 @register_action("fire_torpedo_at_audible")
 def act_fire_torpedo_at_audible(ctx, params):
     """Tire une torpille sur l'humain audible le plus proche dans 70% de portée
-    max, ou dans l'axe sans contact connu. Cooldown 8 s. SUCCESS si tir."""
+    max. Cooldown 8 s. SUCCESS si tir."""
     if ctx["deps"]["bots_passive_get"]():
         return Status.FAILURE
     bot = ctx["bot"]
@@ -669,11 +669,11 @@ def act_fire_torpedo_at_audible(ctx, params):
         if d_u < best_dist:
             best_dist = d_u
             target_player = p
-    if targets and target_player is None:
+    if target_player is None:
         return Status.FAILURE
     if deps["spawn_bot_torpedo"](bot, target_player):
         bot["next_torpedo_at"] = ctx["now"] + float(params.get("cooldown_s", 8.0))
-        logging.info(f"[bot-fire] {bot['id']} tire torpille sur {target_player['id'] if target_player else 'cap courant'}")
+        logging.info(f"[bot-fire] {bot['id']} tire torpille sur {target_player['id']}")
         return Status.SUCCESS
     return Status.FAILURE
 

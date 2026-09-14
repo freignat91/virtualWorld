@@ -7,8 +7,22 @@ const vm = require("node:vm");
 const BABYLON = require("../static/babylon.js");
 const source = fs.readFileSync(path.join(__dirname, "../static/game.js"), "utf8");
 const handlers = {}, sent = [], listeners = {}, elements = new Map();
+const radarArcs = [], radarEllipses = [], radarStrokes = [];
+let currentRadarPath = [];
 let frame;
-const context2d = new Proxy({ measureText: text => ({ width: text.length * 6 }) }, { get: (target, key) => target[key] || (() => {}),
+const context2d = new Proxy({
+    measureText: text => ({ width: text.length * 6 }),
+    arc(x, y, radius) { radarArcs.push({ x, y, radius, fillStyle: this.fillStyle }); },
+    ellipse(x, y, radiusX, radiusY) {
+        radarEllipses.push({ x, y, radiusX, radiusY, strokeStyle: this.strokeStyle,
+            lineWidth: this.lineWidth });
+    },
+    beginPath() { currentRadarPath = []; },
+    moveTo(x, y) { currentRadarPath.push({ x, y }); },
+    lineTo(x, y) { currentRadarPath.push({ x, y }); },
+    stroke() { radarStrokes.push({ strokeStyle: this.strokeStyle, lineWidth: this.lineWidth,
+        points: currentRadarPath.slice() }); },
+}, { get: (target, key) => target[key] || (() => {}),
     set: (target, key, value) => { target[key] = value; return true; } });
 function element(id = "") {
     if (elements.has(id)) return elements.get(id);
@@ -59,16 +73,20 @@ run(`buildWorld = () => {
 listeners["document:DOMContentLoaded"]();
 listeners["spectateBtn:click"]();
 assert.equal(sent.at(-1)[0], "spectate");
-const data = { spectator: true, world: { ground: { width: 1000, depth: 1000 }, islands: [] },
+const data = { spectator: true, autogame: true, displayPath: 1, manualCheckpoint: 1,
+    world: { ground: { width: 1000, depth: 1000 }, islands: [] },
     players: { a: { id: "botA", is_bot: true, boatType: "submarine", team_id: "red",
         team_name: "Red", boat: { lengthMeters: 100, speed: 20 },
-        position: { x: 10, y: -5, z: 20 }, rotation: 0 },
+        position: { x: 10, y: -5, z: 20 }, rotation: 0,
+        rlWaypoint: { x: 400, z: -300 }, rlRouteProfile: {
+            version: "v15", finalRadiusMeters: 200, intermediateRadiusMeters: 500 } },
         b: { id: "humanB", is_bot: false, boatType: "destroyer", team_id: "blue",
             boat: { lengthMeters: 120, speed: 30, integrity: 200, radarRangeMeters: 1000 },
             integrity: 150, maxIntegrity: 200, position: { x: 50, y: -0.2, z: 20 }, rotation: 1 },
         c: { id: "botC", is_bot: true, boatType: "destroyer", team_id: "red",
             boat: { lengthMeters: 100, speed: 20, integrity: 200 },
-            integrity: 100, maxIntegrity: 200, position: { x: 80, y: -0.2, z: 20 }, rotation: 2 } },
+            integrity: 100, maxIntegrity: 200, position: { x: 80, y: -0.2, z: 20 }, rotation: 2,
+            rlWaypoint: { x: -300, z: 300 } } },
     dayCycle: { state: "off", now: Date.now() / 1000, startedAt: 0, startTimeOfDay: 0 },
     grenades: [{ gid: 1, shooterId: "botA", phase: "water", x: 20, y: -2, z: 20,
         vx: 0, vy: 0, vz: 0, impactX: 20, impactZ: 20, targetDepth: 10, sinkSpeed: 0.4 }] };
@@ -103,11 +121,72 @@ assert.equal(run("isViewingLocal()"), false);
 assert.equal(run("grenades[0].phase"), "water");
 assert.equal(run("grenades[0].y"), -2);
 assert.equal(run("grenades.length"), 1);
+assert.equal(run("rlWaypoints.botA.x"), 400);
+assert.equal(run("rlWaypoints.botA.z"), -300);
+assert.equal(run("rlWaypointPaths.botA.points.length"), 1);
+assert.equal(run("JSON.stringify(Object.keys(rlWaypoints).sort())"), '["botA","botC"]');
+assert.equal(run("scene.getMeshByName('rlWaypoint_botA')"), null);
+handlers.player_moved({ id: "botA", position: { x: 10, y: -5, z: 20 }, rotation: 0,
+    rlWaypoint: { x: 450, z: -250 } });
+assert.equal(run("rlWaypoints.botA.x"), 450);
+assert.equal(run("rlWaypointPaths.botA.points.length"), 1);
+handlers.player_moved({ id: "botA", position: { x: 10, y: -5, z: 20 }, rotation: 0,
+    rlWaypoint: null });
+assert.equal(run("rlWaypoints.botA"), undefined);
+assert.equal(run("rlWaypointPaths.botA.points.length"), 1);
+run("autogameMode = false; updateRlWaypoint('normal', {x: 1, z: 2});");
+assert.equal(run("rlWaypoints.normal"), undefined);
+run("autogameMode = true; autogameDisplayPath = false; updateRlWaypoint('noPath', {x: 1, z: 2}, {x: 0, z: 0});");
+assert.equal(run("rlWaypoints.noPath.x"), 1);
+assert.equal(run("rlWaypointPaths.noPath"), undefined);
+run("autogameDisplayPath = true");
+run("updateRlWaypoint('segmented', {x: 100, z: 0}, {x: 0, z: 0}, {x: 300, z: 0})");
+run("updateRlWaypoint('segmented', {x: 200, z: 0}, {x: 10, z: 0}, {x: 300, z: 0})");
+assert.equal(run("rlWaypoints.segmented.x"), 300);
+assert.equal(run("rlWaypointPaths.segmented.points.length"), 2);
+run("updateRlWaypoint('segmented', null, {x: 20, z: 0}, {x: 300, z: 0})");
+assert.equal(run("rlWaypoints.segmented.x"), 300);
+assert.equal(run("rlWaypointPaths.segmented.points.length"), 3);
+handlers.player_moved({ id: "botA", position: { x: 10, y: -5, z: 20 }, rotation: 0,
+    rlWaypoint: { x: 400, z: -300 } });
+run("updateRlRoute('botA', [{x: 10, z: 20}, {x: 15, z: 30}, {x: 400, z: -300}], {version: 'v15', finalRadiusMeters: 200, intermediateRadiusMeters: 500})");
+assert.equal(run("rlRouteProfiles.botA.version"), "v15");
+run("clearWorld()");
+assert.equal(run("rlWaypoints.botA"), undefined);
+assert.equal(run("rlWaypointPaths.botA"), undefined);
+assert.equal(run("rlPlannedRoutes.botA"), undefined);
+assert.equal(run("rlRouteProfiles.botA"), undefined);
+run("buildWorld(worldData)");
+handlers.player_moved({ id: "botA", position: { x: 10, y: -5, z: 20 }, rotation: 0,
+    rlWaypoint: { x: 400, z: -300 } });
+handlers.player_moved({ id: "botC", position: { x: 80, y: -0.2, z: 20 }, rotation: 2,
+    rlWaypoint: { x: -300, z: 300 } });
+run("updateRlWaypoint('botA', {x: 400, z: -300}, {x: 20, z: 40})");
+run("updateRlWaypoint('botC', {x: -300, z: 300}, {x: 90, z: 30})");
+run("updateRlRoute('botA', [{x: 10, z: 20}, {x: 15, z: 30}, {x: 400, z: -300}], {version: 'test', finalRadiusMeters: 300, intermediateRadiusMeters: 600})");
 handlers.player_moved({ id: "botA", position: { x: 10, y: -5, z: 20 }, rotation: 0, submerged: true });
 handlers.torpedo_state({ ownerId: "botA", tid: 1, kind: "acoustic", x: 5, y: -8, z: 4, dirX: 1, dirZ: 0 });
 handlers.drone_state({ ownerId: "botA", did: 1, kind: "automatic", x: 5, y: 8, z: 4, dirX: 1, dirZ: 0 });
 handlers.lure_dropped({ ownerId: "botA", lid: 1, x: 0, y: -2, z: 0, durationMs: 10000 });
 frame();
+const waypointOnRadar = run("worldToRadar(400, -300, radarView())");
+assert.ok(radarEllipses.some(ellipse => ellipse.strokeStyle === "#ffd000"
+    && ellipse.lineWidth === 2 && ellipse.radiusX === 13.5 && ellipse.radiusY === 6.75
+    && ellipse.x === waypointOnRadar.x && ellipse.y === waypointOnRadar.y));
+const pathStartOnRadar = run("worldToRadar(10, 20, radarView())");
+const pathEndOnRadar = run("worldToRadar(20, 40, radarView())");
+assert.ok(radarStrokes.some(stroke => stroke.strokeStyle === "#ffd000" && stroke.lineWidth === 2
+    && stroke.points[0].x === pathStartOnRadar.x && stroke.points[0].y === pathStartOnRadar.y
+    && stroke.points.at(-1).x === pathEndOnRadar.x && stroke.points.at(-1).y === pathEndOnRadar.y));
+const plannedStrokeIndex = radarStrokes.findIndex(stroke =>
+    stroke.strokeStyle === "#ff3030" && stroke.lineWidth === 3);
+const actualStrokeIndex = radarStrokes.findIndex(stroke =>
+    stroke.strokeStyle === "#ffd000" && stroke.lineWidth === 2);
+const intermediateOnRadar = run("worldToRadar(15, 30, radarView())");
+assert.ok(plannedStrokeIndex >= 0 && plannedStrokeIndex < actualStrokeIndex);
+assert.ok(radarEllipses.some(ellipse => ellipse.strokeStyle === "#ff3030"
+    && ellipse.lineWidth === 2 && ellipse.radiusX === 27 && ellipse.radiusY === 13.5
+    && ellipse.x === intermediateOnRadar.x && ellipse.y === intermediateOnRadar.y));
 assert.equal(run("oceanMesh.isVisible"), false);
 assert.equal(run("seabedMesh.isVisible"), true);
 assert.equal(run("!allMapMode && radarVisible && radarZoom === 1"), true);
@@ -121,8 +200,12 @@ run(`sonarObservedBoats.stale = {x: 5}; sonarRevealedUntil.stale = 5000;
     passiveSonarDetectionsUntil.stale = 5000; mineRevealedUntil.stale = 5000;`);
 element("spectatorNextBtn").onclick();
 assert.equal(run("[sonarObservedBoats, sonarRevealedUntil, passiveSonarDetectionsUntil, mineRevealedUntil].every(c => !c.stale)"), true);
+radarArcs.length = 0;
+radarStrokes.length = 0;
 frame();
 assert.equal(run("viewedBoat.id"), "humanB");
+assert.equal(radarArcs.some(arc => arc.fillStyle === "#ffd000" && arc.radius === 4), false);
+assert.equal(radarStrokes.some(stroke => stroke.strokeStyle === "#ffd000"), false);
 assert.equal(run("currentBoatType"), "destroyer");
 assert.equal(run("sensorTeamId()"), "blue");
 assert.equal(run("localTeamId"), null);
@@ -141,8 +224,13 @@ frame();
 assert.equal(run("zoomMode && scene.activeCamera === scene._fpvCamera"), true);
 assert.equal(run("scene.activeCamera.position.x"), 50);
 listeners["botsBtn:click"]();
+radarEllipses.length = 0;
 frame();
 assert.equal(run("viewedBoat.id"), "botC");
+const botCWaypointOnRadar = run("worldToRadar(-300, 300, radarView())");
+assert.ok(radarEllipses.some(ellipse => ellipse.strokeStyle === "#ffd000"
+    && ellipse.lineWidth === 2 && ellipse.radiusX === 9 && ellipse.radiusY === 4.5
+    && ellipse.x === botCWaypointOnRadar.x && ellipse.y === botCWaypointOnRadar.y));
 assert.equal(element("integrityDisplay").textContent, "Intégrité: 50%");
 key("Tab", true);
 assert.equal(run("viewedBoat.id"), "humanB");
@@ -193,6 +281,16 @@ const boatOnMap = run("worldToRadar(otherPlayers.botA.position.x, otherPlayers.b
 listeners["radar:click"]({ clientX: boatOnMap.x * 450 / run("radarCanvas.width"),
     clientY: boatOnMap.y * 225 / run("radarCanvas.height") });
 assert.equal(run("viewedBoat.id"), "botA");
+const checkpointIntent = sent.at(-1);
+assert.equal(checkpointIntent[0], "set_autogame_checkpoint");
+assert.equal(checkpointIntent[1].id, "botA");
+assert.equal(checkpointIntent[1].x, 10);
+assert.equal(checkpointIntent[1].z, 20);
+handlers.autogame_checkpoint_set({
+    id: "botA", waypoint: { x: -420, z: 350 }, position: { x: 10, y: -5, z: 20 },
+});
+assert.equal(run("rlWaypoints.botA.x"), -420);
+assert.equal(run("rlWaypointPaths.botA.points.length"), 1);
 assert.equal(run("otherPlayers.botA.isEnabled()"), true);
 assert.equal(run('remoteTorpedoes["botA:1"].mesh.isEnabled()'), true);
 listeners["botsBtn:click"]();
@@ -228,13 +326,16 @@ assert.equal(run("viewedBoat"), null);
 assert.equal(run("isSinking"), false);
 assert.equal(element("sinkMessage").style.display, undefined);
 handlers.player_left({ id: "botA" });
+assert.equal(run("rlWaypoints.botA"), undefined);
+assert.equal(run("rlWaypointPaths.botA"), undefined);
 frame();
 listeners["botsBtn:click"]();
 assert.equal(run("viewedBoat"), null);
 for (const event of ["move", "player_move", "spawn_bot", "torpedo_fire", "sonar_ping", "admin_save_map", "set_sim_speed", "select_boat", "set_active_boat", "change_boat", "pause_active_boat"]) {
     socket.emit(event, {});
 }
-assert.ok(sent.every(([event]) => ["spectate", "list_teams", "admin_list_textures"].includes(event)));
+assert.ok(sent.every(([event]) => ["spectate", "list_teams", "admin_list_textures",
+    "set_autogame_checkpoint"].includes(event)));
 assert.equal(run("localBoat"), null);
 assert.equal(run("playerMesh"), null);
 assert.equal(run("selfControlledPlayerIds.size"), 0);

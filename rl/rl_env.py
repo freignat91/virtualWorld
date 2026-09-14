@@ -33,7 +33,11 @@ DEFAULT_REWARD = {
     "decision_cost": -0.001,
     "weapon_fired": -0.02,
     "weapon_invalid": -0.005,
+    "weapon_without_acquisition": -0.1,
+    "weapon_misaligned": 0.0,
+    "stationary_unengaged": 0.0,
     "lure_dropped": -0.01,
+    "lure_without_threat": -0.1,
     "lure_invalid": -0.002,
     "sonar_pinged": -0.01,
     "sonar_invalid": -0.002,
@@ -200,6 +204,11 @@ class SubmarineDuelEnv(gym.Env):
         observation_dim = int((cached.observation_space.shape or (0,))[0])
         nvec = tuple(int(value) for value in getattr(cached.action_space, "nvec", ()))
         version = control_version_for_spaces(boat_type, observation_dim, nvec)
+        if version in {"sub_duel_v3", "destroyer_duel_v5"}:
+            from rl.masked_recurrent_policy import SituationMaskedMlpLstmPolicy
+
+            if not isinstance(cached.policy, SituationMaskedMlpLstmPolicy):
+                raise ValueError(f"politique adverse sans masque pour {version}")
         return cached, version
 
     def reset(self, *, seed: Optional[int] = None,
@@ -215,8 +224,13 @@ class SubmarineDuelEnv(gym.Env):
         self._opponent_state = None
         self._opponent_episode_start = True
         self._stats = {
-            "weapons": 0, "invalid_weapons": 0,
-            "lures": 0, "sonars": 0, "invalid_sonars": 0, "contacts": 0,
+            "decisions": 0, "weapon_requests": 0, "weapons": 0, "invalid_weapons": 0,
+            "acquired_weapons": 0, "unacquired_weapons": 0,
+            "acquired_torpedoes": 0, "misaligned_weapons": 0,
+            "stationary_decisions": 0, "stationary_unengaged_decisions": 0,
+            "lures": 0, "unthreatened_lures": 0,
+            "sonar_requests": 0, "sonars": 0,
+            "invalid_sonars": 0, "contacts": 0,
             "acoustic_torpedoes": 0, "autonomous_torpedoes": 0,
             "cannon_shots": 0, "grenades": 0,
             "mines": 0, "invalid_mines": 0,
@@ -310,11 +324,25 @@ class SubmarineDuelEnv(gym.Env):
 
     def step(self, action):
         agent = self._agent()
+        had_fresh_contact = bool(agent.get("rl_contact_tracked", False))
+        had_visible_threat = bool(agent.get("rl_torpedo_detected", False))
         result = apply_action(agent, self.runner.sim, action)
         self._predict_opponent()
+        self._stats["decisions"] += 1
+        if result["weapon_requested"]:
+            self._stats["weapon_requests"] += 1
         if result["weapon_fired"]:
             self._stats["weapons"] += 1
+            acquisition_stat = (
+                "unacquired_weapons" if result["weapon_without_acquisition"]
+                else "acquired_weapons")
+            self._stats[acquisition_stat] += 1
             weapon_kind = result.get("weapon_kind")
+            if not result["weapon_without_acquisition"] and weapon_kind in {
+                    "acoustic", "autonomous"}:
+                self._stats["acquired_torpedoes"] += 1
+                if result["weapon_misaligned"]:
+                    self._stats["misaligned_weapons"] += 1
             weapon_stat = {
                 "acoustic": "acoustic_torpedoes",
                 "autonomous": "autonomous_torpedoes",
@@ -327,8 +355,12 @@ class SubmarineDuelEnv(gym.Env):
             self._stats["invalid_weapons"] += 1
         if result["lure_dropped"]:
             self._stats["lures"] += 1
+        if result["lure_without_threat"]:
+            self._stats["unthreatened_lures"] += 1
         if result["sonar_pinged"]:
             self._stats["sonars"] += 1
+        if result["sonar_requested"]:
+            self._stats["sonar_requests"] += 1
         if result["sonar_invalid"]:
             self._stats["invalid_sonars"] += 1
         if result["mine_placed"]:
@@ -345,6 +377,15 @@ class SubmarineDuelEnv(gym.Env):
                 break
         self._total_decisions += 1
 
+        speed_ratio = abs(float(agent.get("speed", 0.0))) / max(
+            0.001, float(agent.get("max_speed_us", 0.0)))
+        stationary = speed_ratio < 0.1
+        stationary_unengaged = stationary and not had_fresh_contact and not had_visible_threat
+        if stationary:
+            self._stats["stationary_decisions"] += 1
+        if stationary_unengaged:
+            self._stats["stationary_unengaged_decisions"] += 1
+
         agent_alive = self.agent_sid in self.runner.legacy.bots
         opponent_alive = self.opponent_sid in self.runner.legacy.bots
         agent_hp = float(self.runner.legacy.bots[self.agent_sid]["integrity"]) if agent_alive else 0.0
@@ -354,7 +395,13 @@ class SubmarineDuelEnv(gym.Env):
         reward += max(0.0, self._previous_agent_hp - agent_hp) * self.reward_cfg["damage_taken"]
         reward += self.reward_cfg["weapon_fired"] if result["weapon_fired"] else 0.0
         reward += self.reward_cfg["weapon_invalid"] if result["weapon_invalid"] else 0.0
+        reward += (self.reward_cfg["weapon_without_acquisition"]
+                   if result["weapon_without_acquisition"] else 0.0)
+        reward += self.reward_cfg["weapon_misaligned"] if result["weapon_misaligned"] else 0.0
+        reward += self.reward_cfg["stationary_unengaged"] if stationary_unengaged else 0.0
         reward += self.reward_cfg["lure_dropped"] if result["lure_dropped"] else 0.0
+        reward += (self.reward_cfg["lure_without_threat"]
+                   if result["lure_without_threat"] else 0.0)
         reward += self.reward_cfg["lure_invalid"] if result["lure_invalid"] else 0.0
         reward += self.reward_cfg["sonar_pinged"] if result["sonar_pinged"] else 0.0
         reward += self.reward_cfg["sonar_invalid"] if result["sonar_invalid"] else 0.0

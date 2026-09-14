@@ -1,0 +1,79 @@
+{
+  "name": "aisub_mobility_runtime_v9_seed80542",
+  "description": "Base fraiche sous-marin 200k avec decroissance d'entropie apres 100k.",
+  "model": {
+    "net_arch": [256, 256],
+    "lstm_hidden_size": 256,
+    "n_lstm_layers": 1
+  },
+  "training": {
+    "total_steps": 200000,
+    "n_envs": 8,
+    "seed": 80542,
+    "learning_rate": 0.0001,
+    "n_steps": 1024,
+    "batch_size": 256,
+    "n_epochs": 8,
+    "gamma": 0.997,
+    "gae_lambda": 0.97,
+    "ent_coef": 0.003,
+    "ent_coef_end": 0.0003,
+    "ent_coef_decay_start_steps": 100000,
+    "clip_range": 0.2,
+    "vf_coef": 0.5,
+    "max_grad_norm": 0.5,
+    "checkpoint_every_steps": 25000
+  },
+  "env": {
+    "map_name": "world",
+    "boat_type": "submarine",
+    "control_version": "sub_duel_v2",
+    "frame_skip": 5,
+    "max_episode_seconds": 60,
+    "stuck_seconds": 10,
+    "movement_anchor_m": 20,
+    "spawn_clearance_m": 100,
+    "obstacle_min_m": 250,
+    "obstacle_max_m": 700,
+    "obstacle_probability_start": 0.2,
+    "obstacle_probability_end": 0.8,
+    "curriculum_decisions": 10000,
+    "coastal_clearance_m": 200
+  },
+  "reward": {
+    "movement_per_meter": 0.01,
+    "silent_speed_ratio": 0.02,
+    "noisy_speed_ratio": 0.005,
+    "reverse_per_meter": -0.05,
+    "rudder_use": -0.01,
+    "rudder_without_threat": -0.05,
+    "coastal_proximity": -0.02,
+    "coastal_damage_per_point": -1.0,
+    "depth_change_per_meter": -0.002,
+    "weapon_request": -0.02,
+    "weapon_without_acquisition": -0.1,
+    "lure_request": -0.01,
+    "lure_without_threat": -0.2,
+    "sonar_request": -0.01,
+    "stuck": -5.0,
+    "completion": 5.0,
+    "decision_cost": -0.001
+  },
+  "evaluation": {
+    "every_steps": 25000,
+    "episodes": 100,
+    "seed": 433542,
+    "behavior_gates": {
+      "min_mean_speed_ratio": 0.65,
+      "min_mean_straightness": 0.5,
+      "max_coastal_damage_episode_fraction": 0.01,
+      "max_sunk_count": 0,
+      "max_stuck_count": 2,
+      "max_stationary_fraction": 0.05,
+      "max_reverse_fraction": 0.05,
+      "max_weapon_request_fraction": 0.01,
+      "max_lure_request_fraction": 0.01,
+      "max_sonar_request_fraction": 0.01
+    }
+  }
+}

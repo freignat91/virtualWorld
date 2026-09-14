@@ -52,7 +52,7 @@ def launch_context(bot: dict, sim: Any, action: Any) -> dict:
         cooldown = 'torpedo' if kind in ('acoustic', 'autonomous') else kind
         if sim.now() < bot.get(f'next_{cooldown}_at', 0):
             reason = 'cooldown'
-        elif kind in ('cannon', 'grenade') and target is None:
+        elif target is None:
             reason = 'no_contact'
         elif kind == 'cannon' and target['position']['y'] < -(target['boat'].get('flotation', 2)) / 10 - .05:
             reason = 'target_submerged'
@@ -83,8 +83,19 @@ def launch_context(bot: dict, sim: Any, action: Any) -> dict:
 
 
 @preserve_rng_state()
-def duel(env: SubmarineDuelEnv, model: Any, seed: int, emit: Any) -> dict:
+def duel(env: SubmarineDuelEnv, model: Any, seed: int, emit: Any,
+         deterministic: bool = True, disable_agent_mines: bool = False,
+         action_seed: int | None = None) -> dict:
+    if action_seed is not None and (deterministic or type(action_seed) is not int
+                                   or not 0 <= action_seed < 2**63):
+        raise ValueError("action_seed exige un mode echantillonne et un entier de 0 a 2**63-1")
+    if disable_agent_mines and env.control_version != 'destroyer_duel_v2':
+        raise ValueError("L'ablation des mines exige destroyer_duel_v2")
     observation, opponent_info = env.reset(seed=seed)
+    if not deterministic:
+        # RNG de la politique isole du hasard Python utilise par le combat.
+        import torch
+        torch.manual_seed(seed if action_seed is None else action_seed)
     runner, sim = env.runner, env.runner.sim
     sids = [env.agent_sid, env.opponent_sid]
     ids = [runner.legacy.bots[s]['id'] for s in sids]
@@ -154,7 +165,8 @@ def duel(env: SubmarineDuelEnv, model: Any, seed: int, emit: Any) -> dict:
         for method, weapon in (('_explode_torpedo', 'torpedo'),
                                ('explode_server_grenade', 'grenade'),
                                ('explode_server_mine', 'mine'),
-                               ('update_cannon_shells', 'cannon')):
+                               ('update_cannon_shells', 'cannon'),
+                               ('update_player_integrity', 'coastal')):
             stack.enter_context(patch.object(sim, method, wrap(getattr(sim, method), weapon)))
         while step < 12000:
             for side, sid in enumerate(sids):
@@ -164,13 +176,18 @@ def duel(env: SubmarineDuelEnv, model: Any, seed: int, emit: Any) -> dict:
                     continue
                 if side == 0:
                     action, state = policy.predict(observation, state=state,
-                        episode_start=np.array([step == 0]), deterministic=True)
+                        episode_start=np.array([step == 0]), deterministic=deterministic)
                 else:
                     observation_o = build_observation(bot, sim, runner.world)
                     action, env._opponent_state = policy.predict(observation_o,
                         state=env._opponent_state,
                         episode_start=np.array([env._opponent_episode_start]), deterministic=True)
                     env._opponent_episode_start = False
+                proposed_action = np.asarray(action).copy()
+                if side == 0 and disable_agent_mines:
+                    # Intervention diagnostique uniquement, sans modifier la politique.
+                    action = proposed_action.copy()
+                    action[5] = 0
                 context = launch_context(bot, sim, action)
                 result = apply_action(bot, sim, action)
                 if result['weapon_fired']:
@@ -188,7 +205,8 @@ def duel(env: SubmarineDuelEnv, model: Any, seed: int, emit: Any) -> dict:
                     counts[f'{phase}:{pid}:{context["requested_kind"]}:{context["contact"]}:{status}'] += 1
                 record({'type': 'RLDecision', 'player_id': pid,
                         'observation': (observation if side == 0 else observation_o).tolist(),
-                        'action': action.tolist(), 'result': result, **context,
+                        'action': action.tolist(), 'proposed_action': proposed_action.tolist(),
+                        'result': result, **context,
                         'ammo': ammo_snapshot(env, sid)})
             for _ in range(env.frame_skip):
                 runner.step(PHYSICS_DT)
@@ -221,7 +239,10 @@ def duel(env: SubmarineDuelEnv, model: Any, seed: int, emit: Any) -> dict:
                 observation = build_observation(runner.legacy.bots[sids[0]], sim, runner.world)
     assert first is not None
     assert not any(':unattributed:' in k for k in damage), damage
-    return {'seed': seed, **opponent_info, 'initial': initial, 'initial_ammo': initial_ammo,
+    return {'seed': seed, 'deterministic': deterministic,
+            'action_seed': None if deterministic else (seed if action_seed is None else action_seed),
+            'disable_agent_mines': disable_agent_mines, **opponent_info,
+            'initial': initial, 'initial_ammo': initial_ammo,
             'first': first, 'settled': {'outcome': outcome(alive), 'tick': step,
             'pending': pending_torpedoes(sim, sunk), 'ammo': last_ammo},
             'counts': dict(counts), 'damage': dict(damage)}
@@ -231,14 +252,26 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--model', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
+    parser.add_argument('--seed-start', type=int, default=98000)
+    parser.add_argument('--stochastic', action='store_true',
+                        help="Echantillonne les actions de l'agent seulement ; adversaire gele deterministe")
+    parser.add_argument('--disable-agent-mines', action='store_true',
+                        help="Diagnostic : neutralise uniquement la pose de mines de l'agent")
+    parser.add_argument('--action-seed-offset', type=int, default=0,
+                        help="Avec --stochastic : graine des actions = graine du duel + decalage")
+    parser.add_argument('--config', type=Path, default=ROOT / 'rl/configs/aidest_v4.json')
     args = parser.parse_args()
+    if args.action_seed_offset and not args.stochastic:
+        parser.error('--action-seed-offset exige --stochastic')
+    if args.stochastic and not 0 <= args.seed_start + args.action_seed_offset <= 2**63 - 20:
+        parser.error('plage de graines des actions invalide')
     for key in ('OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'OPENBLAS_NUM_THREADS'):
         if os.environ.get(key) != '1':
             parser.error(f'{key}=1 requis')
     args.output.mkdir(parents=True, exist_ok=False)
     from sb3_contrib import RecurrentPPO
     from rl.evaluate_ai import artifact_manifest
-    config_path = ROOT / 'rl/configs/aidest_v4.json'
+    config_path = args.config.resolve()
     config = json.loads(config_path.read_text())
     pool = ROOT / 'rl/models_rl/aisub_v15_scripted/best'
     assert len(list(pool.glob('*.zip'))) == 1
@@ -247,12 +280,22 @@ def main() -> None:
         paths.update((ROOT / directory).glob('*.json'))
     paths.update((args.model.resolve(), *pool.glob('*.zip'), config_path))
     paths.update((ROOT / 'rl/models_rl').glob('*/best/*.zip'))
+    paths.update((ROOT / 'rl/models_rl').glob('*/policy_final.zip'))
+    paths.update((ROOT / 'config').glob('*.json'))
+    paths.update(ROOT.glob('*.json'))
+    documents = set(ROOT.glob('*.md')) | set((ROOT / 'rl').glob('*.md'))
     manifest = {str(p.relative_to(ROOT)): artifact_manifest(p)['sha256'] for p in sorted(paths)}
     started = time.time()
-    launch = {'inputs': manifest, 'model': str(args.model), 'seeds': list(range(98000, 98020)),
+    seeds = list(range(args.seed_start, args.seed_start + 20))
+    launch = {'inputs': manifest, 'model': str(args.model), 'seeds': seeds,
+              'deterministic': not args.stochastic, 'opponent_deterministic': True,
+              'disable_agent_mines': args.disable_agent_mines,
+              'action_seed_offset': args.action_seed_offset,
               'config': config, 'threads': {k: os.environ[k] for k in
               ('OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'OPENBLAS_NUM_THREADS')},
               'started': started, 'pid': os.getpid(), 'numpy': np.__version__}
+    launch['documents'] = {str(p.relative_to(ROOT)): artifact_manifest(p)['sha256']
+                           for p in sorted(documents)}
     (args.output / 'launch.json').write_text(json.dumps(launch, indent=2))
     for name, command in (('initial.diff', ['git', 'diff']), ('staged.diff', ['git', 'diff', '--cached']),
                           ('status.txt', ['git', 'status', '--short']), ('head.txt', ['git', 'rev-parse', 'HEAD']),
@@ -262,6 +305,8 @@ def main() -> None:
         for path in sorted(paths):
             if path.suffix != '.zip':
                 archive.add(path, arcname=str(path.relative_to(ROOT)))
+        for path in sorted(documents):
+            archive.add(path, arcname=str(path.relative_to(ROOT)))
     with preserve_rng_state():
         model = RecurrentPPO.load(args.model, device='cpu')
     results = []
@@ -272,9 +317,12 @@ def main() -> None:
             fixed_opponent_pool_dir=str(pool) if opponent == 'sub15' else None,
             fixed_policy_probability=1.0 if opponent == 'sub15' else 0.0, **options)
         try:
-            for seed in range(98000, 98020):
+            for seed in seeds:
                 with gzip.open(args.output / f'{opponent}_{seed}.jsonl.gz', 'wt') as trace:
-                    result = duel(env, model, seed, lambda row: trace.write(json.dumps(row) + '\n'))
+                    result = duel(env, model, seed, lambda row: trace.write(json.dumps(row) + '\n'),
+                                  deterministic=not args.stochastic,
+                                  disable_agent_mines=args.disable_agent_mines,
+                                  action_seed=(seed + args.action_seed_offset) if args.stochastic else None)
                 result['opponent_label'] = opponent
                 results.append(result)
                 print(opponent, seed, result['first']['outcome'], result['settled']['outcome'], flush=True)

@@ -23,8 +23,8 @@ class ModelConfigTest(unittest.TestCase):
         defaults = public_bot_models({})
         self.assertEqual(set(defaults), set(public_bot_models(json.loads(
             (ROOT / "config/conffile.json").read_text()))))
-        self.assertEqual("aisub_v15_scripted", defaults["bot_rl_sub"])
-        self.assertEqual("aidest_v3_scripted", defaults["bot_rl_destroyer"])
+        self.assertEqual("aisub_mobility_runtime_v16", defaults["bot_rl_sub"])
+        self.assertEqual("aidest_mobility_runtime_v16", defaults["bot_rl_destroyer"])
         config = dict(defaults, bot_rl_destroyer="aidest_v4_scripted:policy_250000_steps", secret="hidden")
         self.assertEqual(config["bot_rl_destroyer"], public_bot_models(config)["bot_rl_destroyer"])
         self.assertNotIn("secret", public_bot_models(config))
@@ -78,6 +78,19 @@ class ModelConfigTest(unittest.TestCase):
                 patch.dict(rl_runtime._MODEL_CACHE, {Path("fake.zip"): model}, clear=True):
             with self.assertRaises(ValueError):
                 rl_runtime.load_model("rl_run", "destroyer")
+
+    def test_runtime_rejects_unmasked_policy_for_masked_interface(self) -> None:
+        from rl import rl_runtime
+        from rl.rl_control import SUBMARINE_V3_ACTION_NVECS, SUBMARINE_V3_OBS_DIM
+
+        model = SimpleNamespace(
+            observation_space=SimpleNamespace(shape=(SUBMARINE_V3_OBS_DIM,)),
+            action_space=SimpleNamespace(nvec=SUBMARINE_V3_ACTION_NVECS),
+            rl_control_version="sub_duel_v3", policy=object())
+        with patch.object(rl_runtime, "resolve_model_path", return_value=Path("fake.zip")), \
+                patch.dict(rl_runtime._MODEL_CACHE, {Path("fake.zip"): model}, clear=True):
+            with self.assertRaisesRegex(ValueError, "politique sans masque"):
+                rl_runtime.load_model("rl_run", "submarine")
 
 
 class SyncModelsTest(unittest.TestCase):

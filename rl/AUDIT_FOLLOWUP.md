@@ -1,6 +1,209 @@
 # Suivi de l'audit RL
 
-## Training V5 Actif (2026-09-10)
+V7 FINAL COMPLETE+COMPARE : phase5 106496 pas/15m14, aucun process. Independent
+320 duels graines200000-19 : phase4/5 settled det42.5/32.5%, sampled75.833/
+76.667%. Phase5-phase4 det-10[-15.507,-4.493]pp, sampled+0.833[-4.318,5.985]pp,
+IC95/20 clusters. Phase5 degrade det sans gain sampled etabli. Zero mine/cap,
+8 jobs exit0,124 hashes/job,320 traces valides. Candidat recommande sans
+promotion : phase4 checkpoint100k SHA9a513b31..., encore0W/6L/34D settled.
+Entrainement planifie acheve, aucune suite/live/deploy/commit. Voir V7_DEFENSE_PILOT.md.
+
+V7 CINQUIEME PALIER FINAL ACTIF depuis2026-09-10 22:00:12+02, PID304338,
+workers304358-304365/CUDA. Warm-start phase4-100k SHA9a513b31..., seed8542,
+derniers100k/106496 reels attendus. Entropie0.000975->0.0003, curriculum0.
+Verifie24576/548FPS et optimiseur fini ;298 entrees/196 ZIP inchangees avant
+docs,15 tests cibles. Ne pas dupliquer/tuer/auto-prolonger/promouvoir/deployer/
+committer. Voir V7_DEFENSE_PILOT.md.
+
+V7 phase4 COMPLETE+COMPAREE :106496 pas/14m29, interne det41.667% sampled79.722%.
+Independent320 duels graines190000-19 : phase3/4 settled det36.25/45%, sampled
+74.167/70.417%. Gains phase4 det+8.75[3.388,14.112]pp ; sampled-3.75
+[-8.843,1.343]pp, IC95/20 clusters. Zero mine/cap,8 jobs exit0,121 hashes/job,
+320 traces valides. Aucun processus/promotion/continuation. Dernier100k
+defendable sur autorisation. Voir V7_DEFENSE_PILOT.md.
+
+V7 defense QUATRIEME PALIER100k ACTIF depuis2026-09-10 21:25:41+02,
+PID300707/workers300727-300734, CUDA. Warm-start phase3-100k SHA3a0438b..., seed
+7542, phase restante200k mais stop100k/106496 attendus. Entropie reprise0.00165
+vers0.0003, curriculum0. Verifie24576/558FPS et optimiseur fini ;293 entrees/
+192 ZIP inchangees avant docs,15 tests cibles. Ne pas dupliquer/tuer/
+auto-continuer/promouvoir/deployer/committer. Voir V7_DEFENSE_PILOT.md.
+
+V7 defense COMPARAISON INDEPENDANTE phase2/phase3 terminee :320 duels graines
+180000-19, autosub/sub15, deterministic40 et sampled120/checkpoint. Settled
+phase2/phase3 det27.5/35 %, sampled72.5/78.333 %. Gains phase3 +7.5
+[0.302,14.698]pp det et +5.833[0.016,11.650]pp sampled, IC95/20 clusters.
+Invalid weapons sampled93.817->33.05/duel, zero mine, aucun cap.8 jobs exit0,
+118 hashes/job et320 traces valides. Phase3 complete106496/16m41, aucun process.
+Pas de promotion/continuation automatique. Voir V7_DEFENSE_PILOT.md.
+
+V7 defense TROISIEME PALIER100k ACTIF depuis2026-09-10 20:49:11+02,
+PID296452/workers296472-296479, CUDA. Warm-start du checkpoint phase2-100k
+SHAf3148eab..., seed6542, phase restante300k mais stop100k/106496 attendus.
+Entropie reprise0.002325->0.0003, curriculum termine0. Verifie16384/575FPS et
+optimiseur fini ;288 entrees/188 ZIP inchangees avant docs,15 tests cibles.
+Phase2 terminee106496 pas : deterministic33.333 %, sampled81.389 %, invalides
+16721, zero mine. Ne pas dupliquer/tuer/auto-continuer/promouvoir/deployer/
+committer. Voir V7_DEFENSE_PILOT.md.
+
+V7 defense DEUXIEME PALIER100k ACTIF depuis2026-09-10 20:28:54+02,
+PID294428/workers294449-294456. Warm-start du checkpoint canonique100k intact,
+seed5542/CUDA, nouvelle phase400k avec stop apres100k/106496 reels attendus ;
+calendriers reinitialises par la semantique connue de --resume. Verifie24576
+pas/559FPS et premier optimiseur fini.283 entrees dont184 ZIP inchangees apres
+lancement avant docs ;15 tests cibles. Ne pas dupliquer/tuer/auto-continuer,
+promouvoir/deployer/committer. Voir V7_DEFENSE_PILOT.md et le log /tmp.
+
+V7 defense PALIER100k TERMINE :106496 pas en16min14s, aucun processus restant.
+Selection interne100k deterministe35 % (1V/19D/40N,60), echantillonnee75 %
+(108V/18D/54N,180). Zero mine, mais29373 tentatives d'arme invalides en mode
+echantillonne et deterministe presque inactif. Les poids selectionnes a100k sont
+identiques entre checkpoint/best/best-sampled ; final106496 distinct/non evalue.
+273 entrees hors quatre docs de statut et les180 ZIP historiques sont inchanges.
+Pas de promotion, continuation ou comparaison independante. Voir
+V7_DEFENSE_PILOT.md. Ce bloc supersede le statut ACTIF ci-dessous.
+
+V7 defense PALIER100k ACTIF depuis2026-09-10 19:59:34+02, PID291249,
+workers291267-291274. Nouveau modele seed4542/CUDA, aucun resume, v3 obs101/
+actions5 sans mine. Budget configure500k mais stop-after100k,106496 reels
+attendus ; double eval a100k. Premier optimiseur verifie a16384 pas/492FPS,
+metriques finies.277 entrees/180ZIP inchangees apres lancement avant docs;
+275 tests complets+7 cibles. Ne pas dupliquer, prolonger automatiquement,
+promouvoir/deployer/committer. Voir TRAINING_RL.md et le log /tmp correspondant.
+
+V7 defense PREPAREE, NON LANCEE : nouvelle interface destroyer_duel_v3,
+observation101, actions5 sans mine. Six torpilles radar exposees avec positions,
+vitesses relatives, CPA/ETA et tri de danger ; six leurres avec positions, duree
+et propriete. Leurres adverses soumis a portee/LOS/thermocline, types/verrous/
+cibles torpilles prives, anciennes interfaces preservees. Config
+aidest_v7_defense.json, modele neuf obligatoire, graine4542, pilote500k/double
+selection. Mine reward-1 seulement en defense, action impossible. Aucun run,
+runtime live ou poids modifie ;275 tests complets puis7 v3 cibles passent.
+
+Continuation v6 TERMINEE :507904 nouveaux pas, fin10sept2026 14:52:31+02:00,
+1h21m43, aucun processus actif. Comparaison independante400 duels sur graines
+170000-19 : settled v4/v5/source-v6-sampled/continue-det/continue-sampled=
+66,25/80/81,25/48,75/70,833 %. Continue-sampled - source-sampled = -10,417
+[-16,560;-4,274]pp sur20 groupes ; auto-mine HP3084,078 vs851,900. Dix jobs
+exit0,107/108 hashes inchanges, aucune limite600s. Pas de suite automatique,
+promotion ou changement runtime ; voir V6_PILOT_COMPARISON.md/TRAINING_RL.md.
+
+Continuation v6 ACTIVE : lancement autorise10sept2026 13:30:32+02:00,
+PID262667, run aidest_v6_continue_seed3542_review500k depuis checkpoint500k.
+Budget phase2M, stop-after-steps500k (507904 reels attendus), bilan avant suite.
+LR5e-5 constant, entropie0.0003 constante, curriculum termine; autres regles/
+observations/rewards/adversaires inchanges, double evaluation.24576 pas verifies,
+CUDA421FPS, optimiseur fini,13 tests cibles,270hashes inchanges avant docs.
+Voir TRAINING_RL.md; aucun sous-agent, aucune promotion ou reprise automatique.
+
+Protocole double evaluation prepare (pas de run lance) : option
+sampled_action_seed_offsets et config aidest_v6_dual_eval.json separent BEST
+deterministe et sampled/best, scores moyens sur trois graines d'actions sans
+melanger les modes.267tests, RNG et poids preserves, runtime/CLI standard
+deterministes. Ancien pilote et champions intacts. Voir TRAINING_RL.md.
+
+Comparaison references160000 COMPLETE :200 duels, v4/v5 deterministes et
+v6-500k echantillonne trois graines d'actions pour chaque scenario. Scores
+settled81,25/82,5/81,25 %, v6-v4 0[-9,627;9,627]pp, v6-v5 -1,25
+[-9,817;7,317]pp,20 groupes de graines avec repetitions moyennees. Pas de
+preuve d'equivalence/superiorite. V6 consomme27,033 torpilles et18,808 leurres
+par duel. Cinq exit0,102/103 hashes inchanges/job,262tests. Voir
+V6_PILOT_COMPARISON.md. Aucun prolongement, promotion ou runtime modifie.
+
+Ablation v6 mines COMPLETE : 80 duels150000-150019, meme500k deterministe,
+controle/sans pose de mines. Scores premier5/40 %, settled2,5/40 % ; gain
+settled37,5 [27,765 ;47,235]pp. Controle32 naufrages auto-attribues et5860,019HP
+auto-mines ; intervention supprime ces degats mais obtient surtout des nuls,
+sans sonar/grenade/canon.103 hashes inchanges/job,261tests. Voir
+V6_PILOT_COMPARISON.md. Pas de prolongement, de promotion ou changement du jeu.
+
+Dernier bilan : pilote v6 termine, comparaison instrumentee de 160 duels
+terminee. Voir `V6_PILOT_COMPARISON.md` : divergence majeure entre inference
+deterministe et echantillonnee, auto-degats par mines etablis au checkpoint
+500k. Aucun changement de gameplay/reward ou prolongement long automatique.
+
+## Pilote V6 Actif (2026-09-10)
+
+Lance a09:08:39+02:00, actif verifie a2026-09-10T09:09:31+02:00, PID244030,
+run `aidest_v6_scripted_seed2542_pilot500k`, CUDA RTX5080,8 workers244048-244055.
+Initialisation fraiche effective : new_model, source/resume null, seed2542,
+pilote500k ; config v5 conservee sauf identite/seed/duree,258 tests actuels passes.
+Premier rollout8192 puis16384 steps,470 FPS cumules,8 updates, pertes/KL finis.
+Prochaine evaluation100k, checkpoint250k ; pilote non termine/non evalue.
+Archive neuve source/git/SHA et preuves de demarrage sous
+`models_rl/launch_manifests/aidest_v6_scripted_seed2542_pilot500k/` ;99 entrees
+et58 fichiers modeles inchanges apres lancement, avant ces notes de statut.
+Acces admin configure exterieurement, ancien blocage resolu sans contournement.
+Curriculum100k et entropie500k comprimes avec total_steps : pas de comparaison
+causale isolee de l'initialisation. Voir TRAINING_RL.md pour commande et preuves.
+Ne pas dupliquer/arreter le job sain ; pas de surveillance ulterieure promise.
+Anciennes notes de non-autorisation remplacees pour ce
+seul pilote ; aucune continuation3-5M avant evaluation/revue du pilote, aucun
+serveur, promotion, deploiement, commit ou ancien modele modifie.
+
+## Diagnostic V4/V5 Termine (2026-09-10)
+
+Autorisation80 executee :2 jobs CPU mono-thread exit0,v4best300k/v5best2M,
+autosub/sub15 x20 graines130000-130019,config v5/rewards v4 inchanges.
+Scores premier80/78,75%,settled80/77,50% ; gains v5-v4
+-1,25[-12,755;10,255] puis-2,50[-13,685;8,685]pp,IC95% apparie20 clusters/
+40 paires avec covariance. 47 continuations,0 cap,2W->D et1L->D v5/sub15 ;
+ce dernier nul vient de grenades posthumes, pas d'un kill torpille suppose.
+379/638 torpilles,79,68/82,60% blind ;0,586/0,582HP adverses/tir,
+grenades91,78/86,18% du degat offensif. Refus9692/8070,flags6580/2730,
+cooldowns silencieux3112/5340,acoustiques epuisees3/12 sur40.
+Degats torpille recus419,868/1125,133HP ; pas de causalite/reward hacking etabli.
+
+99 hashes inchanges/job,81 sources/JSON+18ZIP,9docs archives en plus ;
+102101 decisions reconciliees,256 tests passes,corps du duel/Sim/controleurs
+intacts. CLI parametrable et verificateur diagnostic seulement. Voir
+`DUEL_DIAGNOSTICS.md` et nouvelle archive
+`models_rl/aidest_v5_scripted_seed1542/evaluation/diagnostic80_130000/`.
+Ne pas fusionner avec evaluation1200/historique80 ni conclure equivalence.
+Pas de prochain training long justifie : seule suite proposee NON lancee,
+ablation diagnostique du tir blind sur v5 gele,une variable,nouvelles graines,
+autorisation distincte. Aucun serveur,promotion,deploiement,commit,poids/reward
+modifie ou processus de campagne restant. Remplace les anciennes propositions
+non lancees ci-dessous ; limites humaines/reseau et robustesse inchangees.
+
+## V5 Termine, Gain Incremental Non Demontre (2026-09-10)
+
+Training termine a03:11:25+02:00,245 rollouts/2007040 nouvelles etapes ; BEST
+selectionne a2000000,score interne0,7916666667,SHA256
+`1af86f9b3f1be7235be4a8994ebbfd8e538d0935c078358dfd1ea8374fe8e9de`.
+`policy_final` differe et n'est pas evalue. Logs finis sur les valeurs console,
+mais dispersion des pertes tardives accrue ; details dans TRAINING_RL.md.
+
+Comparaison independante autorisee terminee :6 jobs CPU mono-thread,exit0,
+stderr vide,1200 matchs valides,12 groupes100,series110000/120000 sans overlap
+avec les rapports controles ni les graines internes v5. Config v5/rewards v4
+exactes,testCombats,autosub/sub15 best gele. Scores v3/v4best300k/v5best
+**69,500/80,500/80,375%**. V5-v4 **-0,125[-3,624;3,374]** points et v5-v3
+**+10,875[7,036;14,714]**,IC95% apparies groupes par graine,200 graines/400
+paires. Le gate +3 points face a la meilleure reference v4 **echoue** ;
+absence de gain demontre, pas preuve d'equivalence ni de regression certaine.
+
+V5 consomme15,87 torpilles/duel vs10,425 pour v4,147/400 stocks acoustiques
+epuises vs26/400,240/400 stocks leurres epuises vs128/400. Flags invalides
+68,5425 vs140,1425 ; ils ne comptent pas tous les refus silencieux de cooldown.
+Aucune attribution de degats ou qualification blind/targeted dans ces rapports.
+Premiere mort/300s inchangee, pas autogame settling/600s. Ne pas reutiliser le
+diagnostic historique80 comme preuve du comportement v5.
+
+123 empreintes inchangees apres tous les jobs,256 tests passent ; puis cinq
+documents seulement actualises. Nouvelle archive ignoree :
+`models_rl/aidest_v5_scripted_seed1542/evaluation/independent_110000_120000/`.
+Sources executables identiques au training ; ZIP/rewards/configs intacts,
+anciens rapports conserves et non fusionnes. Aucun processus train/eval/server
+restant au controle final. Aucune promotion,relance,live,deploiement ou commit.
+Proposition suivante NON executee :80 duels instrumentes v4/v5,20 graines
+fraiches par adversaire,pour degats/rejets/settling avant toute nouvelle phase.
+Ce statut remplace les anciennes mentions actif/non-lance ci-dessous, pas les
+limites humaines/navigateur/reseau,cartes/adversaires et charge production.
+
+## Historique Du Lancement V5 (2026-09-10)
+
+Observation initiale uniquement ; training termine, voir statut ci-dessus.
 
 Derniere autorisation explicite executee : PID210501 depuis01:09:11+02:00,
 actif a01:10:30+02:00, run neuf `aidest_v5_scripted_seed1542`, CUDA RTX5080,
@@ -61,24 +264,21 @@ Avant tout RL long : proposer 80 trajectoires instrumentees v3/v4 300k sur
 nouvelles graines, contexte des tirs/rejets et sensibilite au settling, sur
 autorisation distincte ; revue humaine/live et charge de production restent dues.
 
-## Etape 3 Torpilles Sans Contact (2026-09-09)
+## Torpilles Avec Cible Selectionnee (2026-09-12)
 
-Les actions RL acoustique/autonome peuvent tirer sans contact observe ou memorise
-si ammo/cooldown permettent : point initial et ID nuls, cap/profondeur de lancement
-natifs, activation JSON (500 m), aucune coordonnee cachee/predite. Les tirs avec
-contact conservent le point copie et l'heuristique d'activation 500/200 m. Sim ne
-cherche une cible qu'apres activation par capteurs natifs, LOS/portee/thermoclines.
-Humains : second clic sur le bouton sans selection tire dans l'axe ; radar manuel
-et filoguidage conserves, ID explicite invalide toujours rejete. BT direct audible
-peut tirer sans contact, mais gating des arbres et FSM de combat conserves.
+Le comportement sans contact du 9 septembre est retire. Toute torpille humaine,
+BT ou RL exige maintenant une cible explicite : contact autorise ou point radar
+fixe pour l'humain, contact selectionne exploitable pour les bots. Une intention
+sans cible est rejetee sans munition, cooldown ou projectile ; un ID explicite
+invalide ne peut pas se rabattre sur un point fixe. Une demande RL de torpille
+sans cible recoit en plus la penalite `weapon_without_acquisition`, `-0.1` par
+defaut, ainsi que le cout generique `weapon_invalid`.
 
-Observation/action dimensions et versions, rewards, modeles et champions inchanges.
-Gaspillage de munitions par les politiques existantes attendu, pas de compensation
-reward ; tous scores historiques non directement comparables. Reevaluation reste
-differee ; aucun serveur/train/eval/deploiement/commit autorise. Voir TECHNIQUE et
-`rl/test_targetless_torpedo.py`, `test_server_fire_los.py`,
-`tests/test_targetless_torpedo.js`. Remplace les mentions de torpille sans cible
-encore differee dans les etapes historiques ci-dessous.
+Observation/action dimensions et versions, rewards, modeles et champions restent
+inchanges. Les resultats produits sous l'ancienne regle targetless demeurent
+historiques et non directement comparables. Voir `TECHNIQUE.md`,
+`rl/test_torpedo_target_requirement.py`, `test_server_fire_los.py` et
+`tests/test_torpedo_target_requirement.js`.
 
 ## Etape 2 Canon Physique (2026-09-09)
 

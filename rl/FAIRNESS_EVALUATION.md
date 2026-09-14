@@ -1,5 +1,201 @@
 # Reevaluation sous regles corrigees
 
+## Diagnostic V4/V5 Termine (2026-09-10)
+
+Proposition80 executee sur autorisation explicite : v4best300k/v5best2M,
+autosub/sub15,20 graines130000-130019 par cellule,80 duels valides,2 jobs CPU
+mono-thread exit0. Config v5/rewards v4 et regles intactes. Scores50/50
+premier endpoint **80/78,75%**, settled **80/77,50%** ; v5-v4
+**-1,25[-12,755;10,255]** puis **-2,50[-13,685;8,685]** points,IC95% normal
+apparie groupe par graine,20 clusters/40 paires,covariance conservee.
+47 continuations,aucun cap600s,3 changements v5/sub15 (2W->D,1L->D par grenade
+posthume). Pas preuve de regression/equivalence ; **ne pas fusionner** avec
+les1200 matchs ci-dessous ni en faire un nouveau gate.
+
+V4/v5 :379/638 torpilles avant fin,79,68/82,60% blind,0,586/0,582HP adverses
+par tir ; grenades91,78/86,18% des degats de coque ennemie. Acoustiques vides
+3/12 sur40,leurres10/20. Refus9692/8070 mais flags6580/2730 : cooldowns
+non penalises3112/5340. Degats torpille recus419,868/1125,133HP. Ce sont des
+associations de trajectoires, pas une preuve causale de gaspillage/reward hacking.
+
+99 hashes inchanges/job,81 sources/JSON+18 ZIP ;90 fichiers archives dont9docs.
+102101 decisions reconciliees,256 tests passes. Details, WLD, deux camps et
+SHA dans `DUEL_DIAGNOSTICS.md`, archive neuve
+`models_rl/aidest_v5_scripted_seed1542/evaluation/diagnostic80_130000/`.
+Pas de prochain training long justifie ; proposer seulement une ablation
+diagnostique v5 gele, gate du seul tir blind comme variable unique, sur nouvelle
+autorisation. NON lancee. Aucun gameplay/reward/config/poids modifie, serveur,
+promotion,deploiement,commit ou processus de campagne restant. Les anciens
+statuts proposition-non-lancee ci-dessous sont historiques.
+
+## V5 Independante Terminee (2026-09-10)
+
+**1200 matchs valides, six jobs exit0, aucune promotion.** Le training v5 est
+termine a03:11:25+02:00,2007040 nouvelles etapes ; cette comparaison utilise
+uniquement le **BEST selectionne a2000000**, pas `policy_final.zip`.
+Les resultats et statuts ci-dessous deviennent historiques, sans fusion des
+scores. L'amelioration interne du training ne prouve pas un gain sur v4.
+
+### Resultat Et Gate
+
+Score = (W +0,5 D)/N ; adversaires ponderes50/50. W/L/D signifie
+victoires/defaites/nuls. Chaque adversaire represente200 matchs par modele,
+chaque total400 matchs, pas1200 observations independantes par comparaison.
+
+| Modele | Autosub W/L/D | Score | Sub15 W/L/D | Score | Total W/L/D | Score50/50 |
+|---|---|---:|---|---:|---|---:|
+| v3 best | 69/0/131 | 67,250% | 111/24/65 | 71,750% | 180/24/196 | 69,500% |
+| v4 best300k | 120/0/80 | 80,000% | 139/15/46 | 81,000% | 259/15/126 | 80,500% |
+| v5 best2M | 117/0/83 | 79,250% | 140/14/46 | 81,500% | 257/14/129 | 80,375% |
+
+| Comparaison appariee | Gain (points) | IC95% groupe par graine |
+|---|---:|---|
+| v4-v3 | +11,000 | [7,334 ; 14,666] |
+| v5-v3 | +10,875 | [7,036 ; 14,714] |
+| v5-v4 | -0,125 | [-3,624 ; 3,374] |
+
+**Le gate incremental +3 points face a v4, reference la plus forte, echoue.**
+V5 depasse v3 sur cette suite, mais cela ne suffit pas : aucun gain demontre
+sur v4. L'IC incluant zero ne prouve ni equivalence ni regression certaine ;
+il n'exclut pas non plus un gain reel de3 points. Ne pas inventer apres coup
+un nouveau seuil d'IC. Les differences adversaires ponctuelles v5-v4 restent
+au-dessus de-5 points, sans garantie statistique d'absence de regression.
+Aucune promotion/deploiement, aucun nouvel entrainement lance.
+
+### Series Et Incertitude
+
+100 matchs par cellule adversaire, graines consecutives110000-110099 et
+120000-120099. Les memes graines servent aux trois modeles et aux deux
+adversaires ; elles ne garantissent pas des trajectoires RNG identiques apres
+divergence des actions.
+
+| Modele | Serie | Autosub W/L/D | Score | Sub15 W/L/D | Score |
+|---|---:|---|---:|---|---:|
+| v3 | 110000 | 32/0/68 | 66,0% | 55/9/36 | 73,0% |
+| v3 | 120000 | 37/0/63 | 68,5% | 56/15/29 | 70,5% |
+| v4 | 110000 | 59/0/41 | 79,5% | 65/11/24 | 77,0% |
+| v4 | 120000 | 61/0/39 | 80,5% | 74/4/22 | 85,0% |
+| v5 | 110000 | 59/0/41 | 79,5% | 70/9/21 | 80,5% |
+| v5 | 120000 | 58/0/42 | 79,0% | 70/5/25 | 82,5% |
+
+| Serie | Score v3/v4/v5 | v5-v3, IC95% (points) | v5-v4, IC95% (points) |
+|---|---|---|---|
+| 110000 | 69,50/78,25/80,00% | +10,50 [5,421 ; 15,579] | +1,75 [-3,380 ; 6,880] |
+| 120000 | 69,50/82,75/80,75% | +11,25 [5,491 ; 17,009] | -2,00 [-6,758 ; 2,758] |
+
+Agreges par adversaire sur les deux series : v5-v4 autosub **-0,75
+[-5,446 ; 3,946]**,sub15 **+0,50[-4,047 ; 5,047]** points ;
+v5-v3 autosub **+12,00[7,587 ; 16,413]**,sub15 **+9,75[3,820 ; 15,680]**.
+Les IC pour chacune des12 cellules et les comparaisons aux deux references
+sont conserves dans les JSON d'analyse, sans regroupement d'anciens rapports.
+
+Analyseur reutilise sans modification : `rl/analyze_evaluation_reports.py`.
+Difference de score par duel apparie ; moyenne des deux adversaires pour
+chaque graine, variance estimee separement par serie, puis poids fixes egaux
+des series et IC normal moyenne +/-1,96 SE. La covariance entre adversaires
+est conservee. **200 groupes de graines et400 paires** pour l'agregat ;
+100 groupes/200 paires par serie. Le diagnostic qui suppose les strates
+independantes n'est pas l'IC principal. Suite limitee, pas robustesse globale.
+
+### Consommation Et Durees
+
+Moyennes agent par duel, sur400 matchs par modele. Les statistiques completes
+par adversaire (moyenne,mediane,p95,min,max) sont dans `metrics.json`.
+
+| Mesure | v3 | v4 best300k | v5 best2M |
+|---|---:|---:|---:|
+| Torpilles acoustiques | 0,0150 | 9,4650 | 14,0750 |
+| Torpilles autonomes | 0,3725 | 0,9600 | 1,7950 |
+| Total torpilles | 0,3875 | 10,4250 | 15,8700 |
+| Grenades | 2,8525 | 3,3525 | 3,2400 |
+| Canon | 0 | 0 | 0 |
+| Mines | 0,0275 | 0,0200 | 1,1975 |
+| Flags armes invalides | 45,2850 | 140,1425 | 68,5425 |
+| Flags invalides/seconde simulee | 0,2363 | 0,8814 | 0,4224 |
+| Leurres | 7,0975 | 14,4125 | 16,3950 |
+| Sonars | 6,6100 | 5,5825 | 5,6875 |
+| Duree moyenne (s) | 191,637 | 159,000 | 162,270 |
+| Duree mediane (s) | 283,925 | 130,675 | 130,250 |
+| Nuls au plafond300s /400 | 196 | 126 | 129 |
+| Stock acoustique epuise /400 | 0 | 26 | 147 |
+| Stock leurres epuise /400 | 16 | 128 | 240 |
+| Aucun tir torpille /400 | 323 | 6 | 2 |
+
+Aucun stock autonome epuise,aucun flag sonar/mine invalide ; p95 des durees300s
+pour les trois modeles. Contre autosub/sub15 respectivement, v5 tire16,78/14,96
+torpilles par duel, contre9,995/10,855 pour v4. Ses stocks acoustiques sont
+epuises90/200 et57/200 fois, contre5/200 et21/200 pour v4. Durees moyennes
+v5 194,148/130,392s, v4 185,093/132,907s, v3 235,427/147,848s.
+
+V5 consomme davantage de torpilles,leurres et mines sans gain incremental
+demontre. La baisse de `invalid_weapons` n'est pas une preuve de meilleure
+efficacite tactique : les cooldowns silencieux n'y sont pas tous comptes.
+Ces rapports ne contiennent ni raison de rejet, ni etiquette blind/targeted,
+ni degats attribues aux armes, ni stocks/actions adverses. Ne pas deduire le
+gaspillage, la causalite ou la contribution des torpilles a partir des seuls
+compteurs ; les chiffres du diagnostic v3/v4 historique ne decrivent pas v5.
+
+### Protocole Et Tracabilite
+
+- Six jobs200 matchs, chacun CPU,`OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1`.
+- `--report --config rl/configs/aidest_v5.json --maps testCombats --opponents submarine/autosub --opponent-pools rl/models_rl/aisub_v15_scripted/best --episodes 100 --device cpu`,seed110000 ou120000.
+- V5 config identique a v4 sauf nom/description/seed1542 ; reward verifiee exacte pour chaque groupe.
+- Controle `destroyer_duel_v2`,spawn600-2000m,aucun curriculum/self-play,frame_skip5,dt0,05,max6000 ticks.
+- **Premiere mort ou300s**,aucune attente de torpilles ; pas la fin autogame settling/600s. HP200/100/10 et regles courantes inchanges.
+- Les12 groupes ont exactement100 lignes/graines consecutives,issues et identites valides ; W/L/D,rewards et toutes les moyennes publiees reconcilies aux episodes.
+- Adversaire gele unique,hash et composition du pool verifies avant/apres ; sub15 subit aussi les regles/observations courantes malgre ses poids geles.
+- Audit des62 JSON historiques d'evaluation et des graines internes des configs : aucun chevauchement trouve ; v5 interne101542-101571 exclu.
+
+Archive **neuve**,locale et ignoree, sans ecrasement :
+`rl/models_rl/aidest_v5_scripted_seed1542/evaluation/independent_110000_120000/`.
+Git initial propre,HEAD `c5a338796b39a676697010e16e56f53e98e8635f`.
+`launch_manifest.json` conserve123 hashes (sources Python racine/RL,cartes,
+coques,BT,configs,checkpoints et provenance),commandes,git et ressources ;
+`source_inputs.tar.gz` contient les entrees hors ZIP, dont la selection et les
+logs internes. ZIP identifies par hash, conserves en place sans modification.
+Archive source SHA256 `78cb84024582157f1c1e946cbf69cc4a633231fe6201b9f7ba3632b41b43c643`.
+
+| Artefact | SHA-256 |
+|---|---|
+| v5 BEST2M | `1af86f9b3f1be7235be4a8994ebbfd8e538d0935c078358dfd1ea8374fe8e9de` |
+| v4 BEST300k | `90c08a62b551f77f23a90194bb7876841df7cf7a9c50987141c3257aa16ca8e2` |
+| v3 BEST3,6M | `103481713271ed04cf03007f1468898e6b4c928214c12f28ecd90fabfc5066c2` |
+| sub15 BEST | `2849f0c79a15fced51a249720bd25bd4210ee1bafc4c71f79aa942dfaab421c5` |
+| aidest_v5 config | `6a0bfc6a90818ff91b59b795991cf9a93709a420dc350502cc764a489606aeab` |
+
+Six sorties0 et stderr vide ; durees v3 472,870/473,335s,v4 574,224/538,490s,
+v5 662,948/668,200s. NLWP1 et trois limites d'environnement observes pour
+chaque processus ; RSS max par job827380-831064Kio. Ce n'est pas un benchmark
+de latence live : les durees incluent simulation,projectiles et adversaire.
+Les123 hashes sont inchanges apres chaque job et apres l'analyse ; pas de
+verrou filesystem. Les sources executables correspondent aussi a l'archive
+du lancement training ; seules quatre notes de statut avaient change depuis.
+
+`analysis_vs_v3*.json` et `analysis_vs_v4*.json` conservent l'agregat et chaque
+serie ; `metrics.json`,`completion.json`,logs de sortie,`process_threads.json`,
+`seed_audit.json`,`training_summary.json`,`checkpoint_metadata.json` et
+`tests.log` complet sont archives. **256 tests passes** avec les trois limites
+CPU ; puis seuls `AGENTS.md`,`rl/AGENTS.md`,`TRAINING_RL.md`,ce document et
+`AUDIT_FOLLOWUP.md` sont actualises. Aucun gameplay/reward/config/poids modifie,
+aucun training/live/deploiement/commit. Aucun processus training/evaluation/
+serveur restant apres completion. Les fichiers finaux sont listes et hashes
+dans `artifacts.sha256`,avec diff et copies des cinq documents finaux.
+
+### Suite Proposee, Non Executee
+
+Conserver les modeles et suspendre toute promotion/retraining. Proposer
+**80 duels instrumentes v4best300k/v5best**,20 nouvelles graines par adversaire,
+avec le runner existant : degats par arme,tirs sans contact,raisons de rejet,
+stocks et resultat avant/apres settling. Choisir des graines disjointes de
+toutes celles ci-dessus ; ne pas relancer les1200 matchs ni selectionner un
+autre checkpoint sur ces graines deja consultees. Diagnostic post hoc, pas
+nouveau gate independant. Il n'a **pas ete lance dans ce tour** ; aucun effet
+causal ni nouvelle modification de reward n'est justifie sans cette analyse.
+Validation humaine/navigateur/reseau,autres cartes/adversaires et charge live
+restent hors perimetre.
+
+## Historique STEP4 Et Evaluations Anterieures
+
 STEP4 termine le 2026-09-10 sous les regles STEP1/2/3 et HP 200/100/10 :
 1200 matchs frais, v3 67,00 %, v4 300k 75,50 %, v4 2M 66,50 %.
 Voir la nouvelle section finale ; les evaluations ci-dessous restent historiques,

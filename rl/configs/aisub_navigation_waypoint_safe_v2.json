@@ -1,0 +1,64 @@
+{
+  "name": "aisub_navigation_waypoint_safe_v2_seed32542",
+  "description": "Sous-marin: waypoint local conserve jusqu'a un corridor cotier libre de50 m.",
+  "model": {
+    "net_arch": [128, 128],
+    "lstm_hidden_size": 128,
+    "n_lstm_layers": 1
+  },
+  "training": {
+    "total_steps": 100000,
+    "n_envs": 8,
+    "seed": 32542,
+    "learning_rate": 0.0001,
+    "n_steps": 1024,
+    "batch_size": 256,
+    "n_epochs": 8,
+    "gamma": 0.997,
+    "gae_lambda": 0.97,
+    "ent_coef": 0.003,
+    "ent_coef_end": 0.003,
+    "clip_range": 0.2,
+    "vf_coef": 0.5,
+    "max_grad_norm": 0.5,
+    "checkpoint_every_steps": 25000
+  },
+  "env": {
+    "map_name": "world",
+    "boat_type": "submarine",
+    "frame_skip": 5,
+    "max_episode_seconds": 240,
+    "stuck_seconds": 20,
+    "goal_radius_m": 50,
+    "min_route_m": 600,
+    "max_route_m": 1200,
+    "route_mode": "single_island",
+    "max_detour_ratio": 1.3,
+    "coastal_clearance_m": 100,
+    "guidance_mode": "safe_waypoint",
+    "guidance_clearance_m": 50,
+    "ray_max_m": 1000
+  },
+  "reward": {
+    "progress_per_meter": 0.01,
+    "arrival": 10.0,
+    "coastal_damage_per_point": -1.0,
+    "coastal_proximity": -0.1,
+    "stuck": -5.0,
+    "timeout": -1.0,
+    "stationary": -0.002,
+    "decision_cost": -0.001
+  },
+  "evaluation": {
+    "every_steps": 25000,
+    "episodes": 100,
+    "seed": 412542,
+    "behavior_gates": {
+      "min_success_rate": 0.98,
+      "max_coastal_damage_episode_fraction": 0.0,
+      "max_stuck_rate": 0.02,
+      "max_stationary_fraction": 0.05,
+      "max_mean_success_path_efficiency": 1.3
+    }
+  }
+}

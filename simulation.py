@@ -30,6 +30,7 @@ from debug_log import dlog
 # ===================== Constantes (alignées sur server.py) =====================
 
 UNIT_METERS_BOT = 10.0
+SUBMARINE_VERTICAL_SPEED_US = 0.5
 TORPEDO_CEILING_Y = -2.0 / UNIT_METERS_BOT  # -0.2 u (= -2 m)
 SEABED_FLOOR_Y = -(500 - 10) / UNIT_METERS_BOT
 MAX_WORLD_MINES = 1000
@@ -66,17 +67,23 @@ def init_hull_integrity(entity: Dict[str, Any]) -> None:
 
 # ===================== Helpers géométriques (purs, sans état) =====================
 
+def radar_position_visible(bot: Dict[str, Any], x: float, y: float, z: float,
+                           world: Dict[str, Any]) -> bool:
+    """Visibilite radar locale commune, bornee et soumise aux occultations."""
+    pos = bot["position"]
+    bx, by, bz = pos["x"], pos.get("y", 0.0), pos["z"]
+    range_u = float((bot.get("boat") or {}).get("radarRangeMeters", 30000)) / UNIT_METERS_BOT
+    return ((x - bx) ** 2 + (z - bz) ** 2 <= range_u ** 2
+            and geometry.line_of_sight_clear(bx, bz, x, z, world)
+            and not geometry.count_thermoclines_crossed(
+                bx, by, bz, x, y, z, world, UNIT_METERS_BOT))
+
+
 def torpedo_radar_visible(bot: Dict[str, Any], torpedo: Dict[str, Any],
                           world: Dict[str, Any]) -> bool:
     """Radar strict local, sans exemption de verrou, de type ou d'alliance."""
-    pos = bot["position"]
-    bx, by, bz = pos["x"], pos.get("y", 0.0), pos["z"]
-    tx, tz = torpedo["x"], torpedo["z"]
-    range_u = float((bot.get("boat") or {}).get("radarRangeMeters", 30000)) / UNIT_METERS_BOT
-    return ((tx - bx) ** 2 + (tz - bz) ** 2 <= range_u ** 2
-            and geometry.line_of_sight_clear(bx, bz, tx, tz, world)
-            and not geometry.count_thermoclines_crossed(
-                bx, by, bz, tx, torpedo.get("y", 0.0), tz, world, UNIT_METERS_BOT))
+    return radar_position_visible(
+        bot, torpedo["x"], torpedo.get("y", 0.0), torpedo["z"], world)
 
 
 def torpedo_radar_threat(bot: Dict[str, Any], torpedo: Dict[str, Any],
@@ -2061,6 +2068,11 @@ class Sim:
         bot["position"] = dict(old_position, x=float(x), z=float(z))
         bot["speed"] = bot["rudder"] = 0.0
         bot["waypoint"] = None
+        bot["rl_waypoint"] = None
+        bot["rl_destination"] = None
+        bot["rl_route_start"] = None
+        bot["rl_route"] = []
+        bot["rl_route_waypoints"] = []
         bot["control_target_speed_ratio"] = bot["control_target_rudder"] = 0.0
         for key in ("_evade_until", "_threat_cache"):
             bot.pop(key, None)
@@ -2206,8 +2218,14 @@ class Sim:
         return changed
 
     def update_player_integrity(self, dt: float, world_data: Dict[str, Any]) -> None:
-        """Tick d'intégrité humains : danger zone, profondeur excessive, regen."""
+        """Tick d'intégrité : danger côtier partagé, puis règles propres aux humains."""
         now = self.now()
+        for sid, bot in list(self.bots.items()):
+            if bot.get("integrity", 100.0) <= 0:
+                continue
+            pos = bot.get("position") or {}
+            if self.is_in_danger_zone(pos.get("x", 0), pos.get("z", 0), world_data):
+                self.bot_apply_damage(sid, bot, dt, None)
         for sid, p in list(self.players.items()):
             if p.get("is_bot"):
                 continue
@@ -2633,6 +2651,8 @@ class Sim:
 
     def spawn_bot_torpedo(self, bot: Dict[str, Any], target_player: Optional[Dict[str, Any]] = None) -> bool:
         """Lance une torpille tirée par un bot (même simu serveur que les humains)."""
+        if target_player is None:
+            return False
         legacy = self._legacy
         boat = bot.get("boat") or {}
         specs = boat_torpedo_specs(boat)
@@ -2651,14 +2671,12 @@ class Sim:
         bz = bot["position"]["z"]
         by = bot["position"]["y"]
         max_range_m = spec.get("maxRangeMeters", 10000)
-        initial_target = None
-        if target_player is not None:
-            px = target_player["position"]["x"]
-            pz = target_player["position"]["z"]
-            py = target_player["position"].get("y", 0)
-            initial_target = (px, py, pz)
-            if math.hypot(px - bx, pz - bz) * UNIT_METERS_BOT > max_range_m * 0.7:
-                return False
+        px = target_player["position"]["x"]
+        pz = target_player["position"]["z"]
+        py = target_player["position"].get("y", 0)
+        initial_target = (px, py, pz)
+        if math.hypot(px - bx, pz - bz) * UNIT_METERS_BOT > max_range_m * 0.7:
+            return False
         dir_x = -math.cos(bot["rotation"])
         dir_z = math.sin(bot["rotation"])
         pid = bot["id"]
@@ -2697,7 +2715,7 @@ class Sim:
             "inAcquisition": False,
             "lastIntensity": 0.0,
             "initialTarget": initial_target,
-            "targetId": None if target_player is None or "observed_at" in target_player else target_player["id"],
+            "targetId": None if "observed_at" in target_player else target_player["id"],
             "wireYaw": 0,
             "wirePitch": 0,
             "notifiedTargets": set(),
@@ -2706,8 +2724,8 @@ class Sim:
         self.torpedoes[(pid, tid)] = t
         ammo[kind] = max(0, ammo.get(kind, 0) - 1)
         self._emit_torpedo_state(t)
-        target_id = target_player["id"] if target_player is not None else None
-        if target_player is not None and "observed_at" not in target_player and not target_player.get("is_bot"):
+        target_id = target_player["id"]
+        if "observed_at" not in target_player and not target_player.get("is_bot"):
             for sid2, other in self.players.items():
                 if other.get("id") == target_id:
                     self.emit(ev_mod.TorpedoAlert(
@@ -2725,6 +2743,8 @@ class Sim:
                                      activation_m: float = None) -> bool:
         """Lance une torpille autonome avec activation_distance personnalisée.
         Si activation_m est None, utilise la valeur du JSON spec."""
+        if target_player is None:
+            return False
         legacy = self._legacy
         boat = bot.get("boat") or {}
         specs = boat_torpedo_specs(boat)
@@ -2742,15 +2762,13 @@ class Sim:
         bz = bot["position"]["z"]
         by = bot["position"]["y"]
         max_range_m = spec.get("maxRangeMeters", 20000)
-        initial_target = None
-        if target_player is not None:
-            px = target_player["position"]["x"]
-            pz = target_player["position"]["z"]
-            py = target_player["position"].get("y", 0)
-            initial_target = (px, py, pz)
-            dist_u = math.hypot(px - bx, pz - bz)
-            if dist_u * UNIT_METERS_BOT > max_range_m * 0.7:
-                return False
+        px = target_player["position"]["x"]
+        pz = target_player["position"]["z"]
+        py = target_player["position"].get("y", 0)
+        initial_target = (px, py, pz)
+        dist_u = math.hypot(px - bx, pz - bz)
+        if dist_u * UNIT_METERS_BOT > max_range_m * 0.7:
+            return False
         dir_x = -math.cos(bot["rotation"])
         dir_z = math.sin(bot["rotation"])
         pid = bot["id"]
@@ -2790,7 +2808,7 @@ class Sim:
             "inAcquisition": False,
             "lastIntensity": 0.0,
             "initialTarget": initial_target,
-            "targetId": None if target_player is None or "observed_at" in target_player else target_player["id"],
+            "targetId": None if "observed_at" in target_player else target_player["id"],
             "wireYaw": 0,
             "wirePitch": 0,
             "notifiedTargets": set(),
@@ -2799,8 +2817,6 @@ class Sim:
         # Diagnostic profondeur tir : pitch initial calculé sur horizon = minTurnRadius*1.5.
         try:
             import logging as _lg
-            if initial_target is None:
-                dist_u, py = 0.0, spawn_y
             horiz_clamp_u = max(0.001, min(dist_u, t["minTurnRadius"] * 1.5))
             init_pitch_deg = math.degrees(math.atan2(py - spawn_y, horiz_clamp_u))
             _lg.info(
@@ -2814,8 +2830,8 @@ class Sim:
         self.torpedoes[(pid, tid)] = t
         ammo["autonomous"] = max(0, ammo.get("autonomous", 0) - 1)
         self._emit_torpedo_state(t)
-        target_id = target_player["id"] if target_player is not None else None
-        if target_player is not None and "observed_at" not in target_player and not target_player.get("is_bot"):
+        target_id = target_player["id"]
+        if "observed_at" not in target_player and not target_player.get("is_bot"):
             for sid2, other in self.players.items():
                 if other.get("id") == target_id:
                     self.emit(ev_mod.TorpedoAlert(
@@ -3267,12 +3283,15 @@ class Sim:
             max_depth_m = float(bot.get("max_depth_m", 200.0))
             target_y = float(bot.get("control_target_depth_y", bot["position"].get("y", 0.0)))
             target_y = max(-max_depth_m / UNIT_METERS_BOT, min(TORPEDO_CEILING_Y, target_y))
-            depth_delta = target_y - float(bot["position"].get("y", 0.0))
-            depth_step = 0.5 * dt
+            previous_y = float(bot["position"].get("y", 0.0))
+            depth_delta = target_y - previous_y
+            depth_step = SUBMARINE_VERTICAL_SPEED_US * dt
             if abs(depth_delta) <= depth_step:
                 bot["position"]["y"] = target_y
             else:
                 bot["position"]["y"] += math.copysign(depth_step, depth_delta)
+            bot["vertical_speed_us"] = (
+                (float(bot["position"]["y"]) - previous_y) / dt if dt > 0.0 else 0.0)
 
         sync = self.players.get(bot["sid"])
         if sync is not None:

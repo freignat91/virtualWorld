@@ -1,15 +1,12 @@
 # Virtual World
 
-## Tir De Torpille Sans Cible
+## Tir De Torpille
 
-Sans selection, cliquez sur une torpille puis recliquez sur le meme bouton pour
-tirer dans l'axe du bateau, a sa profondeur de lancement habituelle, sans cible
-acquise. Entre les deux clics, le radar permet toujours de viser un point fixe ;
-ESC annule. Acoustiques et autonomes ne cherchent une cible qu'apres la distance
-d'activation ; la filoguidee conserve ses commandes manuelles et sa limite d'une
-torpille controlee. Les tirs restent soumis aux munitions et a la portee native.
-Les actions RL peuvent maintenant consommer des torpilles sans contact : scores
-historiques non directement comparables, modeles et rewards inchanges.
+Une torpille exige une cible selectionnee : contact autorise ou point fixe choisi
+sur le radar. Sans selection, le premier clic ouvre la visee mais un second clic
+sur l'arme ne tire pas ; ESC annule. Les humains, bots BT et bots RL ne peuvent
+ni lancer ni consommer de munition ou de cooldown sans cible exploitable. La
+filoguidee conserve ses commandes manuelles et sa limite d'une torpille controlee.
 
 Virtual World est un jeu multijoueur temps réel de combat naval et sous-marin.
 Un serveur Python autoritaire arbitre la navigation, les capteurs, les armes et
@@ -248,8 +245,8 @@ Les boutons **Sub IA** et **Destroyer IA** lisent ces clés à la racine de
 
 ```json
 {
-  "bot_rl_sub": "aisub_v15_scripted",
-  "bot_rl_destroyer": "aidest_v3_scripted",
+  "bot_rl_sub": "aisub_mobility_runtime_v16",
+  "bot_rl_destroyer": "aidest_mobility_runtime_v16",
   "server": { "port": 7000 },
   "world": { "dayDurationSeconds": 1800 }
 }
@@ -325,9 +322,8 @@ Aucune licence de redistribution n'est actuellement publiée dans ce dépôt.
 
 `autogame.json` a la racine est charge uniquement avec `--autogame`, au demarrage
 du serveur avant toute connexion ; `{"boats": []}` permet un scenario vide.
-Le fichier local autorise contient actuellement le duel destroyer v3 / sous-marin v15,
-avec 30 s de preparation, premier naufrage puis attente des torpilles des bateaux
-coules, et limite de combat de 600 s.
+Le fichier local autorise contient actuellement les deux runtimes de mobilite v16
+officiels et figes, avec 30 s de preparation et checkpoints manuels affiches.
 Sans ce flag (defaut), aucune lecture, validation, precharge d'IA ni creation de
 bots du scenario, meme si le fichier est absent ou invalide. Exemple de lancement
 autorise : `./start.sh --trace --autogame --map world`. Il permet de fixer

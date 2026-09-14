@@ -80,8 +80,8 @@ class DecisionTraceTest(unittest.TestCase):
                     self.assertEqual(len(decision.observation), control_spec(boat_type, version)[1])
                     self.assertEqual(decision.action, action)
                     self.assertEqual(decision.result, results[0])
-                    self.assertFalse(decision.result["weapon_invalid"])
-                    self.assertTrue(decision.result["weapon_fired"])
+                    self.assertTrue(decision.result["weapon_invalid"])
+                    self.assertFalse(decision.result["weapon_fired"])
                     self.assertTrue(decision.result["lure_dropped"])
                     self.assertEqual(decision.visible_threat, {"owner_id": "public-owner", "tid": 2})
                     self.assertEqual((decision.decision_at, decision.physics_dt, decision.simulation_step),

@@ -1,0 +1,406 @@
+boat_type,model,observation_version,index,group,slot,field,normalization,range,empty_slot_value,normalization_max
+destroyer,,destroyer_duel_v5,0,boat,,speed_ratio,speed / max_speed,"[-1,1]",,30
+destroyer,,destroyer_duel_v5,1,boat,,throttle_ratio,current throttle request,"[-1,1]",,1
+destroyer,,destroyer_duel_v5,2,boat,,yaw_rate_ratio,actual yaw rate / rudder_max,"[-1,1]",,0.36
+destroyer,,destroyer_duel_v5,3,boat,,rudder_ratio,rudder / rudder_max,"[-1,1]",,0.36
+destroyer,,destroyer_duel_v5,4,boat,,integrity_ratio,integrity / max_integrity,"[0,1]",,200
+destroyer,,destroyer_duel_v5,5,boat,,emitted_noise_ratio,emitted_noise / boat_noise,"[0,1]",,1000
+destroyer,,destroyer_duel_v5,6,boat,,acoustic_ammo_ratio,acoustic_ammo / initial_max,"[0,1]",,20
+destroyer,,destroyer_duel_v5,7,boat,,autonomous_ammo_ratio,autonomous_ammo / initial_max,"[0,1]",,16
+destroyer,,destroyer_duel_v5,8,boat,,cannon_ammo_ratio,cannon_ammo / initial_max,"[0,1]",,50
+destroyer,,destroyer_duel_v5,9,boat,,grenade_ammo_ratio,grenade_ammo / initial_max,"[0,1]",,50
+destroyer,,destroyer_duel_v5,10,boat,,lure_ammo_ratio,lure_ammo / initial_max,"[0,1]",,20
+destroyer,,destroyer_duel_v5,11,boat,,torpedo_ready,1 when torpedo cooldown elapsed,"[0,1]",,1
+destroyer,,destroyer_duel_v5,12,boat,,cannon_ready,1 when cannon cooldown elapsed,"[0,1]",,1
+destroyer,,destroyer_duel_v5,13,boat,,grenade_ready,1 when grenade cooldown elapsed,"[0,1]",,1
+destroyer,,destroyer_duel_v5,14,boat,,lure_ready,1 when lure cooldown elapsed,"[0,1]",,1
+destroyer,,destroyer_duel_v5,15,boat,,sonar_ready,1 when active sonar cooldown elapsed,"[0,1]",,1
+destroyer,,destroyer_duel_v5,16,contact,,present,1 when a current or remembered contact is available,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,17,contact,,bearing_sin,right / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,18,contact,,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,19,contact,,distance_ratio,distance_m / 5000,"[0,1]",0,5000
+destroyer,,destroyer_duel_v5,20,contact,,age,age_s / 30,"[0,1]",0,30
+destroyer,,destroyer_duel_v5,21,contact,,depth,contact_depth_m / 450,"[0,1]",0,450
+destroyer,,destroyer_duel_v5,22,contact,,noise,perceived_noise / 20,"[0,1]",0,20
+destroyer,,destroyer_duel_v5,23,torpedo,1,present,1 when slot is occupied,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,24,torpedo,1,bearing_sin,right / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,25,torpedo,1,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,26,torpedo,1,distance_ratio,distance_m / 10000,"[0,1]",0,10000
+destroyer,,destroyer_duel_v5,27,torpedo,1,velocity_forward,relative forward velocity / 10,"[-1,1]",0,10
+destroyer,,destroyer_duel_v5,28,torpedo,1,velocity_right,relative right velocity / 10,"[-1,1]",0,10
+destroyer,,destroyer_duel_v5,29,torpedo,1,cpa_distance,closest approach distance_m / 2000,"[0,1]",0,2000
+destroyer,,destroyer_duel_v5,30,torpedo,1,cpa_time,closest-approach time / 10 s,"[0,1]",0,10
+destroyer,,destroyer_duel_v5,31,torpedo,1,type_one_hot_acoustic,public torpedo type one-hot,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,32,torpedo,1,type_one_hot_autonomous,public torpedo type one-hot,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,33,torpedo,1,type_one_hot_wire_guided,public torpedo type one-hot,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,34,torpedo,2,present,1 when slot is occupied,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,35,torpedo,2,bearing_sin,right / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,36,torpedo,2,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,37,torpedo,2,distance_ratio,distance_m / 10000,"[0,1]",0,10000
+destroyer,,destroyer_duel_v5,38,torpedo,2,velocity_forward,relative forward velocity / 10,"[-1,1]",0,10
+destroyer,,destroyer_duel_v5,39,torpedo,2,velocity_right,relative right velocity / 10,"[-1,1]",0,10
+destroyer,,destroyer_duel_v5,40,torpedo,2,cpa_distance,closest approach distance_m / 2000,"[0,1]",0,2000
+destroyer,,destroyer_duel_v5,41,torpedo,2,cpa_time,closest-approach time / 10 s,"[0,1]",0,10
+destroyer,,destroyer_duel_v5,42,torpedo,2,type_one_hot_acoustic,public torpedo type one-hot,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,43,torpedo,2,type_one_hot_autonomous,public torpedo type one-hot,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,44,torpedo,2,type_one_hot_wire_guided,public torpedo type one-hot,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,45,torpedo,3,present,1 when slot is occupied,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,46,torpedo,3,bearing_sin,right / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,47,torpedo,3,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,48,torpedo,3,distance_ratio,distance_m / 10000,"[0,1]",0,10000
+destroyer,,destroyer_duel_v5,49,torpedo,3,velocity_forward,relative forward velocity / 10,"[-1,1]",0,10
+destroyer,,destroyer_duel_v5,50,torpedo,3,velocity_right,relative right velocity / 10,"[-1,1]",0,10
+destroyer,,destroyer_duel_v5,51,torpedo,3,cpa_distance,closest approach distance_m / 2000,"[0,1]",0,2000
+destroyer,,destroyer_duel_v5,52,torpedo,3,cpa_time,closest-approach time / 10 s,"[0,1]",0,10
+destroyer,,destroyer_duel_v5,53,torpedo,3,type_one_hot_acoustic,public torpedo type one-hot,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,54,torpedo,3,type_one_hot_autonomous,public torpedo type one-hot,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,55,torpedo,3,type_one_hot_wire_guided,public torpedo type one-hot,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,56,torpedo,4,present,1 when slot is occupied,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,57,torpedo,4,bearing_sin,right / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,58,torpedo,4,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,59,torpedo,4,distance_ratio,distance_m / 10000,"[0,1]",0,10000
+destroyer,,destroyer_duel_v5,60,torpedo,4,velocity_forward,relative forward velocity / 10,"[-1,1]",0,10
+destroyer,,destroyer_duel_v5,61,torpedo,4,velocity_right,relative right velocity / 10,"[-1,1]",0,10
+destroyer,,destroyer_duel_v5,62,torpedo,4,cpa_distance,closest approach distance_m / 2000,"[0,1]",0,2000
+destroyer,,destroyer_duel_v5,63,torpedo,4,cpa_time,closest-approach time / 10 s,"[0,1]",0,10
+destroyer,,destroyer_duel_v5,64,torpedo,4,type_one_hot_acoustic,public torpedo type one-hot,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,65,torpedo,4,type_one_hot_autonomous,public torpedo type one-hot,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,66,torpedo,4,type_one_hot_wire_guided,public torpedo type one-hot,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,67,torpedo,5,present,1 when slot is occupied,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,68,torpedo,5,bearing_sin,right / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,69,torpedo,5,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,70,torpedo,5,distance_ratio,distance_m / 10000,"[0,1]",0,10000
+destroyer,,destroyer_duel_v5,71,torpedo,5,velocity_forward,relative forward velocity / 10,"[-1,1]",0,10
+destroyer,,destroyer_duel_v5,72,torpedo,5,velocity_right,relative right velocity / 10,"[-1,1]",0,10
+destroyer,,destroyer_duel_v5,73,torpedo,5,cpa_distance,closest approach distance_m / 2000,"[0,1]",0,2000
+destroyer,,destroyer_duel_v5,74,torpedo,5,cpa_time,closest-approach time / 10 s,"[0,1]",0,10
+destroyer,,destroyer_duel_v5,75,torpedo,5,type_one_hot_acoustic,public torpedo type one-hot,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,76,torpedo,5,type_one_hot_autonomous,public torpedo type one-hot,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,77,torpedo,5,type_one_hot_wire_guided,public torpedo type one-hot,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,78,torpedo,6,present,1 when slot is occupied,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,79,torpedo,6,bearing_sin,right / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,80,torpedo,6,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,81,torpedo,6,distance_ratio,distance_m / 10000,"[0,1]",0,10000
+destroyer,,destroyer_duel_v5,82,torpedo,6,velocity_forward,relative forward velocity / 10,"[-1,1]",0,10
+destroyer,,destroyer_duel_v5,83,torpedo,6,velocity_right,relative right velocity / 10,"[-1,1]",0,10
+destroyer,,destroyer_duel_v5,84,torpedo,6,cpa_distance,closest approach distance_m / 2000,"[0,1]",0,2000
+destroyer,,destroyer_duel_v5,85,torpedo,6,cpa_time,closest-approach time / 10 s,"[0,1]",0,10
+destroyer,,destroyer_duel_v5,86,torpedo,6,type_one_hot_acoustic,public torpedo type one-hot,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,87,torpedo,6,type_one_hot_autonomous,public torpedo type one-hot,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,88,torpedo,6,type_one_hot_wire_guided,public torpedo type one-hot,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,89,lure,1,present,1 when slot is occupied,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,90,lure,1,bearing_sin,right / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,91,lure,1,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,92,lure,1,distance_ratio,distance_m / 10000,"[0,1]",0,10000
+destroyer,,destroyer_duel_v5,93,lure,1,remaining_lifetime,remaining_s / 120,"[0,1]",0,120
+destroyer,,destroyer_duel_v5,94,lure,1,ownership,1 own; -1 foreign,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,95,lure,2,present,1 when slot is occupied,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,96,lure,2,bearing_sin,right / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,97,lure,2,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,98,lure,2,distance_ratio,distance_m / 10000,"[0,1]",0,10000
+destroyer,,destroyer_duel_v5,99,lure,2,remaining_lifetime,remaining_s / 120,"[0,1]",0,120
+destroyer,,destroyer_duel_v5,100,lure,2,ownership,1 own; -1 foreign,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,101,lure,3,present,1 when slot is occupied,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,102,lure,3,bearing_sin,right / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,103,lure,3,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,104,lure,3,distance_ratio,distance_m / 10000,"[0,1]",0,10000
+destroyer,,destroyer_duel_v5,105,lure,3,remaining_lifetime,remaining_s / 120,"[0,1]",0,120
+destroyer,,destroyer_duel_v5,106,lure,3,ownership,1 own; -1 foreign,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,107,lure,4,present,1 when slot is occupied,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,108,lure,4,bearing_sin,right / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,109,lure,4,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,110,lure,4,distance_ratio,distance_m / 10000,"[0,1]",0,10000
+destroyer,,destroyer_duel_v5,111,lure,4,remaining_lifetime,remaining_s / 120,"[0,1]",0,120
+destroyer,,destroyer_duel_v5,112,lure,4,ownership,1 own; -1 foreign,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,113,lure,5,present,1 when slot is occupied,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,114,lure,5,bearing_sin,right / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,115,lure,5,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,116,lure,5,distance_ratio,distance_m / 10000,"[0,1]",0,10000
+destroyer,,destroyer_duel_v5,117,lure,5,remaining_lifetime,remaining_s / 120,"[0,1]",0,120
+destroyer,,destroyer_duel_v5,118,lure,5,ownership,1 own; -1 foreign,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,119,lure,6,present,1 when slot is occupied,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,120,lure,6,bearing_sin,right / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,121,lure,6,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,122,lure,6,distance_ratio,distance_m / 10000,"[0,1]",0,10000
+destroyer,,destroyer_duel_v5,123,lure,6,remaining_lifetime,remaining_s / 120,"[0,1]",0,120
+destroyer,,destroyer_duel_v5,124,lure,6,ownership,1 own; -1 foreign,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,125,grenade,1,present,1 when slot is occupied,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,126,grenade,1,bearing_sin,right / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,127,grenade,1,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,128,grenade,1,distance_ratio,planar_distance_m / 10000,"[0,1]",0,10000
+destroyer,,destroyer_duel_v5,129,grenade,1,velocity_forward,relative forward velocity / 2000,"[-1,1]",0,2000
+destroyer,,destroyer_duel_v5,130,grenade,1,velocity_right,relative right velocity / 2000,"[-1,1]",0,2000
+destroyer,,destroyer_duel_v5,131,grenade,1,explosion_depth,relative explosion depth / max_depth_game_units,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,132,grenade,1,time_to_explosion,time_to_explosion_s / 120,"[0,1]",0,120
+destroyer,,destroyer_duel_v5,133,grenade,1,effect_radius,effect_radius_m / 500,"[0,1]",0,500
+destroyer,,destroyer_duel_v5,134,grenade,1,ownership,1 own; -1 foreign,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,135,grenade,2,present,1 when slot is occupied,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,136,grenade,2,bearing_sin,right / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,137,grenade,2,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,138,grenade,2,distance_ratio,planar_distance_m / 10000,"[0,1]",0,10000
+destroyer,,destroyer_duel_v5,139,grenade,2,velocity_forward,relative forward velocity / 2000,"[-1,1]",0,2000
+destroyer,,destroyer_duel_v5,140,grenade,2,velocity_right,relative right velocity / 2000,"[-1,1]",0,2000
+destroyer,,destroyer_duel_v5,141,grenade,2,explosion_depth,relative explosion depth / max_depth_game_units,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,142,grenade,2,time_to_explosion,time_to_explosion_s / 120,"[0,1]",0,120
+destroyer,,destroyer_duel_v5,143,grenade,2,effect_radius,effect_radius_m / 500,"[0,1]",0,500
+destroyer,,destroyer_duel_v5,144,grenade,2,ownership,1 own; -1 foreign,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,145,grenade,3,present,1 when slot is occupied,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,146,grenade,3,bearing_sin,right / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,147,grenade,3,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,148,grenade,3,distance_ratio,planar_distance_m / 10000,"[0,1]",0,10000
+destroyer,,destroyer_duel_v5,149,grenade,3,velocity_forward,relative forward velocity / 2000,"[-1,1]",0,2000
+destroyer,,destroyer_duel_v5,150,grenade,3,velocity_right,relative right velocity / 2000,"[-1,1]",0,2000
+destroyer,,destroyer_duel_v5,151,grenade,3,explosion_depth,relative explosion depth / max_depth_game_units,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,152,grenade,3,time_to_explosion,time_to_explosion_s / 120,"[0,1]",0,120
+destroyer,,destroyer_duel_v5,153,grenade,3,effect_radius,effect_radius_m / 500,"[0,1]",0,500
+destroyer,,destroyer_duel_v5,154,grenade,3,ownership,1 own; -1 foreign,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,155,grenade,4,present,1 when slot is occupied,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,156,grenade,4,bearing_sin,right / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,157,grenade,4,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,158,grenade,4,distance_ratio,planar_distance_m / 10000,"[0,1]",0,10000
+destroyer,,destroyer_duel_v5,159,grenade,4,velocity_forward,relative forward velocity / 2000,"[-1,1]",0,2000
+destroyer,,destroyer_duel_v5,160,grenade,4,velocity_right,relative right velocity / 2000,"[-1,1]",0,2000
+destroyer,,destroyer_duel_v5,161,grenade,4,explosion_depth,relative explosion depth / max_depth_game_units,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,162,grenade,4,time_to_explosion,time_to_explosion_s / 120,"[0,1]",0,120
+destroyer,,destroyer_duel_v5,163,grenade,4,effect_radius,effect_radius_m / 500,"[0,1]",0,500
+destroyer,,destroyer_duel_v5,164,grenade,4,ownership,1 own; -1 foreign,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,165,grenade,5,present,1 when slot is occupied,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,166,grenade,5,bearing_sin,right / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,167,grenade,5,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,168,grenade,5,distance_ratio,planar_distance_m / 10000,"[0,1]",0,10000
+destroyer,,destroyer_duel_v5,169,grenade,5,velocity_forward,relative forward velocity / 2000,"[-1,1]",0,2000
+destroyer,,destroyer_duel_v5,170,grenade,5,velocity_right,relative right velocity / 2000,"[-1,1]",0,2000
+destroyer,,destroyer_duel_v5,171,grenade,5,explosion_depth,relative explosion depth / max_depth_game_units,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,172,grenade,5,time_to_explosion,time_to_explosion_s / 120,"[0,1]",0,120
+destroyer,,destroyer_duel_v5,173,grenade,5,effect_radius,effect_radius_m / 500,"[0,1]",0,500
+destroyer,,destroyer_duel_v5,174,grenade,5,ownership,1 own; -1 foreign,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,175,grenade,6,present,1 when slot is occupied,"[0,1]",0,1
+destroyer,,destroyer_duel_v5,176,grenade,6,bearing_sin,right / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,177,grenade,6,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,178,grenade,6,distance_ratio,planar_distance_m / 10000,"[0,1]",0,10000
+destroyer,,destroyer_duel_v5,179,grenade,6,velocity_forward,relative forward velocity / 2000,"[-1,1]",0,2000
+destroyer,,destroyer_duel_v5,180,grenade,6,velocity_right,relative right velocity / 2000,"[-1,1]",0,2000
+destroyer,,destroyer_duel_v5,181,grenade,6,explosion_depth,relative explosion depth / max_depth_game_units,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,182,grenade,6,time_to_explosion,time_to_explosion_s / 120,"[0,1]",0,120
+destroyer,,destroyer_duel_v5,183,grenade,6,effect_radius,effect_radius_m / 500,"[0,1]",0,500
+destroyer,,destroyer_duel_v5,184,grenade,6,ownership,1 own; -1 foreign,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,185,obstacle_ray,,proximity_neg_150_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+destroyer,,destroyer_duel_v5,186,obstacle_ray,,proximity_neg_120_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+destroyer,,destroyer_duel_v5,187,obstacle_ray,,proximity_neg_90_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+destroyer,,destroyer_duel_v5,188,obstacle_ray,,proximity_neg_60_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+destroyer,,destroyer_duel_v5,189,obstacle_ray,,proximity_neg_45_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+destroyer,,destroyer_duel_v5,190,obstacle_ray,,proximity_neg_30_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+destroyer,,destroyer_duel_v5,191,obstacle_ray,,proximity_neg_15_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+destroyer,,destroyer_duel_v5,192,obstacle_ray,,proximity_0_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+destroyer,,destroyer_duel_v5,193,obstacle_ray,,proximity_pos_15_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+destroyer,,destroyer_duel_v5,194,obstacle_ray,,proximity_pos_30_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+destroyer,,destroyer_duel_v5,195,obstacle_ray,,proximity_pos_45_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+destroyer,,destroyer_duel_v5,196,obstacle_ray,,proximity_pos_60_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+destroyer,,destroyer_duel_v5,197,obstacle_ray,,proximity_pos_90_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+destroyer,,destroyer_duel_v5,198,obstacle_ray,,proximity_pos_120_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+destroyer,,destroyer_duel_v5,199,obstacle_ray,,proximity_pos_150_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+destroyer,,destroyer_duel_v5,200,obstacle_ray,,proximity_pos_180_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+destroyer,,destroyer_duel_v5,201,waypoint,,waypoint_bearing_sin,right / distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,202,waypoint,,waypoint_bearing_cos,forward / distance,"[-1,1]",0,1
+destroyer,,destroyer_duel_v5,203,waypoint,,waypoint_distance_ratio,distance_m / 5000 clipped,"[0,1]",0,5000
+submarine,,sub_duel_v3,0,boat,,speed_ratio,speed / max_speed,"[-1,1]",,25
+submarine,,sub_duel_v3,1,boat,,throttle_ratio,current throttle request,"[-1,1]",,1
+submarine,,sub_duel_v3,2,boat,,yaw_rate_ratio,actual yaw rate / rudder_max,"[-1,1]",,0.36
+submarine,,sub_duel_v3,3,boat,,vertical_speed_ratio,actual vertical speed / 0.5 game_units_s; ascent positive,"[-1,1]",,0.5
+submarine,,sub_duel_v3,4,boat,,depth_ratio,-y / max_depth_game_units,"[0,1]",,450
+submarine,,sub_duel_v3,5,boat,,rudder_ratio,rudder / rudder_max,"[-1,1]",,0.36
+submarine,,sub_duel_v3,6,boat,,integrity_ratio,integrity / max_integrity,"[0,1]",,100
+submarine,,sub_duel_v3,7,boat,,acoustic_ammo_ratio,acoustic_and_wire_ammo / initial_max,"[0,1]",,28
+submarine,,sub_duel_v3,8,boat,,autonomous_ammo_ratio,autonomous_ammo / initial_max,"[0,1]",,12
+submarine,,sub_duel_v3,9,boat,,lure_ammo_ratio,lure_ammo / initial_max,"[0,1]",,10
+submarine,,sub_duel_v3,10,boat,,torpedo_ready,1 when torpedo cooldown elapsed,"[0,1]",,1
+submarine,,sub_duel_v3,11,boat,,lure_ready,1 when lure cooldown elapsed,"[0,1]",,1
+submarine,,sub_duel_v3,12,boat,,emitted_noise_ratio,emitted_noise / boat_noise,"[0,1]",,100
+submarine,,sub_duel_v3,13,contact,,present,1 when a current or remembered contact is available,"[0,1]",0,1
+submarine,,sub_duel_v3,14,contact,,bearing_sin,right / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,15,contact,,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,16,contact,,distance_ratio,distance_m / 5000,"[0,1]",0,5000
+submarine,,sub_duel_v3,17,contact,,age,age_s / 30,"[0,1]",0,30
+submarine,,sub_duel_v3,18,contact,,depth,contact_depth_m / 450,"[0,1]",0,450
+submarine,,sub_duel_v3,19,contact,,noise,perceived_noise / 20,"[0,1]",0,20
+submarine,,sub_duel_v3,20,torpedo,1,present,1 when slot is occupied,"[0,1]",0,1
+submarine,,sub_duel_v3,21,torpedo,1,bearing_sin,right / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,22,torpedo,1,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,23,torpedo,1,distance_ratio,distance_m / 10000,"[0,1]",0,10000
+submarine,,sub_duel_v3,24,torpedo,1,velocity_forward,relative forward velocity / 10,"[-1,1]",0,10
+submarine,,sub_duel_v3,25,torpedo,1,velocity_right,relative right velocity / 10,"[-1,1]",0,10
+submarine,,sub_duel_v3,26,torpedo,1,cpa_distance,closest approach distance_m / 2000,"[0,1]",0,2000
+submarine,,sub_duel_v3,27,torpedo,1,cpa_time,closest-approach time / 10 s,"[0,1]",0,10
+submarine,,sub_duel_v3,28,torpedo,1,type_one_hot_acoustic,public torpedo type one-hot,"[0,1]",0,1
+submarine,,sub_duel_v3,29,torpedo,1,type_one_hot_autonomous,public torpedo type one-hot,"[0,1]",0,1
+submarine,,sub_duel_v3,30,torpedo,1,type_one_hot_wire_guided,public torpedo type one-hot,"[0,1]",0,1
+submarine,,sub_duel_v3,31,torpedo,2,present,1 when slot is occupied,"[0,1]",0,1
+submarine,,sub_duel_v3,32,torpedo,2,bearing_sin,right / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,33,torpedo,2,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,34,torpedo,2,distance_ratio,distance_m / 10000,"[0,1]",0,10000
+submarine,,sub_duel_v3,35,torpedo,2,velocity_forward,relative forward velocity / 10,"[-1,1]",0,10
+submarine,,sub_duel_v3,36,torpedo,2,velocity_right,relative right velocity / 10,"[-1,1]",0,10
+submarine,,sub_duel_v3,37,torpedo,2,cpa_distance,closest approach distance_m / 2000,"[0,1]",0,2000
+submarine,,sub_duel_v3,38,torpedo,2,cpa_time,closest-approach time / 10 s,"[0,1]",0,10
+submarine,,sub_duel_v3,39,torpedo,2,type_one_hot_acoustic,public torpedo type one-hot,"[0,1]",0,1
+submarine,,sub_duel_v3,40,torpedo,2,type_one_hot_autonomous,public torpedo type one-hot,"[0,1]",0,1
+submarine,,sub_duel_v3,41,torpedo,2,type_one_hot_wire_guided,public torpedo type one-hot,"[0,1]",0,1
+submarine,,sub_duel_v3,42,torpedo,3,present,1 when slot is occupied,"[0,1]",0,1
+submarine,,sub_duel_v3,43,torpedo,3,bearing_sin,right / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,44,torpedo,3,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,45,torpedo,3,distance_ratio,distance_m / 10000,"[0,1]",0,10000
+submarine,,sub_duel_v3,46,torpedo,3,velocity_forward,relative forward velocity / 10,"[-1,1]",0,10
+submarine,,sub_duel_v3,47,torpedo,3,velocity_right,relative right velocity / 10,"[-1,1]",0,10
+submarine,,sub_duel_v3,48,torpedo,3,cpa_distance,closest approach distance_m / 2000,"[0,1]",0,2000
+submarine,,sub_duel_v3,49,torpedo,3,cpa_time,closest-approach time / 10 s,"[0,1]",0,10
+submarine,,sub_duel_v3,50,torpedo,3,type_one_hot_acoustic,public torpedo type one-hot,"[0,1]",0,1
+submarine,,sub_duel_v3,51,torpedo,3,type_one_hot_autonomous,public torpedo type one-hot,"[0,1]",0,1
+submarine,,sub_duel_v3,52,torpedo,3,type_one_hot_wire_guided,public torpedo type one-hot,"[0,1]",0,1
+submarine,,sub_duel_v3,53,torpedo,4,present,1 when slot is occupied,"[0,1]",0,1
+submarine,,sub_duel_v3,54,torpedo,4,bearing_sin,right / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,55,torpedo,4,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,56,torpedo,4,distance_ratio,distance_m / 10000,"[0,1]",0,10000
+submarine,,sub_duel_v3,57,torpedo,4,velocity_forward,relative forward velocity / 10,"[-1,1]",0,10
+submarine,,sub_duel_v3,58,torpedo,4,velocity_right,relative right velocity / 10,"[-1,1]",0,10
+submarine,,sub_duel_v3,59,torpedo,4,cpa_distance,closest approach distance_m / 2000,"[0,1]",0,2000
+submarine,,sub_duel_v3,60,torpedo,4,cpa_time,closest-approach time / 10 s,"[0,1]",0,10
+submarine,,sub_duel_v3,61,torpedo,4,type_one_hot_acoustic,public torpedo type one-hot,"[0,1]",0,1
+submarine,,sub_duel_v3,62,torpedo,4,type_one_hot_autonomous,public torpedo type one-hot,"[0,1]",0,1
+submarine,,sub_duel_v3,63,torpedo,4,type_one_hot_wire_guided,public torpedo type one-hot,"[0,1]",0,1
+submarine,,sub_duel_v3,64,torpedo,5,present,1 when slot is occupied,"[0,1]",0,1
+submarine,,sub_duel_v3,65,torpedo,5,bearing_sin,right / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,66,torpedo,5,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,67,torpedo,5,distance_ratio,distance_m / 10000,"[0,1]",0,10000
+submarine,,sub_duel_v3,68,torpedo,5,velocity_forward,relative forward velocity / 10,"[-1,1]",0,10
+submarine,,sub_duel_v3,69,torpedo,5,velocity_right,relative right velocity / 10,"[-1,1]",0,10
+submarine,,sub_duel_v3,70,torpedo,5,cpa_distance,closest approach distance_m / 2000,"[0,1]",0,2000
+submarine,,sub_duel_v3,71,torpedo,5,cpa_time,closest-approach time / 10 s,"[0,1]",0,10
+submarine,,sub_duel_v3,72,torpedo,5,type_one_hot_acoustic,public torpedo type one-hot,"[0,1]",0,1
+submarine,,sub_duel_v3,73,torpedo,5,type_one_hot_autonomous,public torpedo type one-hot,"[0,1]",0,1
+submarine,,sub_duel_v3,74,torpedo,5,type_one_hot_wire_guided,public torpedo type one-hot,"[0,1]",0,1
+submarine,,sub_duel_v3,75,torpedo,6,present,1 when slot is occupied,"[0,1]",0,1
+submarine,,sub_duel_v3,76,torpedo,6,bearing_sin,right / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,77,torpedo,6,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,78,torpedo,6,distance_ratio,distance_m / 10000,"[0,1]",0,10000
+submarine,,sub_duel_v3,79,torpedo,6,velocity_forward,relative forward velocity / 10,"[-1,1]",0,10
+submarine,,sub_duel_v3,80,torpedo,6,velocity_right,relative right velocity / 10,"[-1,1]",0,10
+submarine,,sub_duel_v3,81,torpedo,6,cpa_distance,closest approach distance_m / 2000,"[0,1]",0,2000
+submarine,,sub_duel_v3,82,torpedo,6,cpa_time,closest-approach time / 10 s,"[0,1]",0,10
+submarine,,sub_duel_v3,83,torpedo,6,type_one_hot_acoustic,public torpedo type one-hot,"[0,1]",0,1
+submarine,,sub_duel_v3,84,torpedo,6,type_one_hot_autonomous,public torpedo type one-hot,"[0,1]",0,1
+submarine,,sub_duel_v3,85,torpedo,6,type_one_hot_wire_guided,public torpedo type one-hot,"[0,1]",0,1
+submarine,,sub_duel_v3,86,lure,1,present,1 when slot is occupied,"[0,1]",0,1
+submarine,,sub_duel_v3,87,lure,1,bearing_sin,right / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,88,lure,1,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,89,lure,1,distance_ratio,distance_m / 10000,"[0,1]",0,10000
+submarine,,sub_duel_v3,90,lure,1,remaining_lifetime,remaining_s / 120,"[0,1]",0,120
+submarine,,sub_duel_v3,91,lure,1,ownership,1 own; -1 foreign,"[-1,1]",0,1
+submarine,,sub_duel_v3,92,lure,2,present,1 when slot is occupied,"[0,1]",0,1
+submarine,,sub_duel_v3,93,lure,2,bearing_sin,right / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,94,lure,2,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,95,lure,2,distance_ratio,distance_m / 10000,"[0,1]",0,10000
+submarine,,sub_duel_v3,96,lure,2,remaining_lifetime,remaining_s / 120,"[0,1]",0,120
+submarine,,sub_duel_v3,97,lure,2,ownership,1 own; -1 foreign,"[-1,1]",0,1
+submarine,,sub_duel_v3,98,lure,3,present,1 when slot is occupied,"[0,1]",0,1
+submarine,,sub_duel_v3,99,lure,3,bearing_sin,right / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,100,lure,3,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,101,lure,3,distance_ratio,distance_m / 10000,"[0,1]",0,10000
+submarine,,sub_duel_v3,102,lure,3,remaining_lifetime,remaining_s / 120,"[0,1]",0,120
+submarine,,sub_duel_v3,103,lure,3,ownership,1 own; -1 foreign,"[-1,1]",0,1
+submarine,,sub_duel_v3,104,lure,4,present,1 when slot is occupied,"[0,1]",0,1
+submarine,,sub_duel_v3,105,lure,4,bearing_sin,right / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,106,lure,4,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,107,lure,4,distance_ratio,distance_m / 10000,"[0,1]",0,10000
+submarine,,sub_duel_v3,108,lure,4,remaining_lifetime,remaining_s / 120,"[0,1]",0,120
+submarine,,sub_duel_v3,109,lure,4,ownership,1 own; -1 foreign,"[-1,1]",0,1
+submarine,,sub_duel_v3,110,lure,5,present,1 when slot is occupied,"[0,1]",0,1
+submarine,,sub_duel_v3,111,lure,5,bearing_sin,right / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,112,lure,5,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,113,lure,5,distance_ratio,distance_m / 10000,"[0,1]",0,10000
+submarine,,sub_duel_v3,114,lure,5,remaining_lifetime,remaining_s / 120,"[0,1]",0,120
+submarine,,sub_duel_v3,115,lure,5,ownership,1 own; -1 foreign,"[-1,1]",0,1
+submarine,,sub_duel_v3,116,lure,6,present,1 when slot is occupied,"[0,1]",0,1
+submarine,,sub_duel_v3,117,lure,6,bearing_sin,right / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,118,lure,6,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,119,lure,6,distance_ratio,distance_m / 10000,"[0,1]",0,10000
+submarine,,sub_duel_v3,120,lure,6,remaining_lifetime,remaining_s / 120,"[0,1]",0,120
+submarine,,sub_duel_v3,121,lure,6,ownership,1 own; -1 foreign,"[-1,1]",0,1
+submarine,,sub_duel_v3,122,grenade,1,present,1 when slot is occupied,"[0,1]",0,1
+submarine,,sub_duel_v3,123,grenade,1,bearing_sin,right / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,124,grenade,1,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,125,grenade,1,distance_ratio,planar_distance_m / 10000,"[0,1]",0,10000
+submarine,,sub_duel_v3,126,grenade,1,velocity_forward,relative forward velocity / 2000,"[-1,1]",0,2000
+submarine,,sub_duel_v3,127,grenade,1,velocity_right,relative right velocity / 2000,"[-1,1]",0,2000
+submarine,,sub_duel_v3,128,grenade,1,explosion_depth,relative explosion depth / max_depth_game_units,"[-1,1]",0,450
+submarine,,sub_duel_v3,129,grenade,1,time_to_explosion,time_to_explosion_s / 120,"[0,1]",0,120
+submarine,,sub_duel_v3,130,grenade,1,effect_radius,effect_radius_m / 500,"[0,1]",0,500
+submarine,,sub_duel_v3,131,grenade,1,ownership,1 own; -1 foreign,"[-1,1]",0,1
+submarine,,sub_duel_v3,132,grenade,2,present,1 when slot is occupied,"[0,1]",0,1
+submarine,,sub_duel_v3,133,grenade,2,bearing_sin,right / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,134,grenade,2,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,135,grenade,2,distance_ratio,planar_distance_m / 10000,"[0,1]",0,10000
+submarine,,sub_duel_v3,136,grenade,2,velocity_forward,relative forward velocity / 2000,"[-1,1]",0,2000
+submarine,,sub_duel_v3,137,grenade,2,velocity_right,relative right velocity / 2000,"[-1,1]",0,2000
+submarine,,sub_duel_v3,138,grenade,2,explosion_depth,relative explosion depth / max_depth_game_units,"[-1,1]",0,450
+submarine,,sub_duel_v3,139,grenade,2,time_to_explosion,time_to_explosion_s / 120,"[0,1]",0,120
+submarine,,sub_duel_v3,140,grenade,2,effect_radius,effect_radius_m / 500,"[0,1]",0,500
+submarine,,sub_duel_v3,141,grenade,2,ownership,1 own; -1 foreign,"[-1,1]",0,1
+submarine,,sub_duel_v3,142,grenade,3,present,1 when slot is occupied,"[0,1]",0,1
+submarine,,sub_duel_v3,143,grenade,3,bearing_sin,right / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,144,grenade,3,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,145,grenade,3,distance_ratio,planar_distance_m / 10000,"[0,1]",0,10000
+submarine,,sub_duel_v3,146,grenade,3,velocity_forward,relative forward velocity / 2000,"[-1,1]",0,2000
+submarine,,sub_duel_v3,147,grenade,3,velocity_right,relative right velocity / 2000,"[-1,1]",0,2000
+submarine,,sub_duel_v3,148,grenade,3,explosion_depth,relative explosion depth / max_depth_game_units,"[-1,1]",0,450
+submarine,,sub_duel_v3,149,grenade,3,time_to_explosion,time_to_explosion_s / 120,"[0,1]",0,120
+submarine,,sub_duel_v3,150,grenade,3,effect_radius,effect_radius_m / 500,"[0,1]",0,500
+submarine,,sub_duel_v3,151,grenade,3,ownership,1 own; -1 foreign,"[-1,1]",0,1
+submarine,,sub_duel_v3,152,grenade,4,present,1 when slot is occupied,"[0,1]",0,1
+submarine,,sub_duel_v3,153,grenade,4,bearing_sin,right / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,154,grenade,4,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,155,grenade,4,distance_ratio,planar_distance_m / 10000,"[0,1]",0,10000
+submarine,,sub_duel_v3,156,grenade,4,velocity_forward,relative forward velocity / 2000,"[-1,1]",0,2000
+submarine,,sub_duel_v3,157,grenade,4,velocity_right,relative right velocity / 2000,"[-1,1]",0,2000
+submarine,,sub_duel_v3,158,grenade,4,explosion_depth,relative explosion depth / max_depth_game_units,"[-1,1]",0,450
+submarine,,sub_duel_v3,159,grenade,4,time_to_explosion,time_to_explosion_s / 120,"[0,1]",0,120
+submarine,,sub_duel_v3,160,grenade,4,effect_radius,effect_radius_m / 500,"[0,1]",0,500
+submarine,,sub_duel_v3,161,grenade,4,ownership,1 own; -1 foreign,"[-1,1]",0,1
+submarine,,sub_duel_v3,162,grenade,5,present,1 when slot is occupied,"[0,1]",0,1
+submarine,,sub_duel_v3,163,grenade,5,bearing_sin,right / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,164,grenade,5,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,165,grenade,5,distance_ratio,planar_distance_m / 10000,"[0,1]",0,10000
+submarine,,sub_duel_v3,166,grenade,5,velocity_forward,relative forward velocity / 2000,"[-1,1]",0,2000
+submarine,,sub_duel_v3,167,grenade,5,velocity_right,relative right velocity / 2000,"[-1,1]",0,2000
+submarine,,sub_duel_v3,168,grenade,5,explosion_depth,relative explosion depth / max_depth_game_units,"[-1,1]",0,450
+submarine,,sub_duel_v3,169,grenade,5,time_to_explosion,time_to_explosion_s / 120,"[0,1]",0,120
+submarine,,sub_duel_v3,170,grenade,5,effect_radius,effect_radius_m / 500,"[0,1]",0,500
+submarine,,sub_duel_v3,171,grenade,5,ownership,1 own; -1 foreign,"[-1,1]",0,1
+submarine,,sub_duel_v3,172,grenade,6,present,1 when slot is occupied,"[0,1]",0,1
+submarine,,sub_duel_v3,173,grenade,6,bearing_sin,right / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,174,grenade,6,bearing_cos,forward / planar_distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,175,grenade,6,distance_ratio,planar_distance_m / 10000,"[0,1]",0,10000
+submarine,,sub_duel_v3,176,grenade,6,velocity_forward,relative forward velocity / 2000,"[-1,1]",0,2000
+submarine,,sub_duel_v3,177,grenade,6,velocity_right,relative right velocity / 2000,"[-1,1]",0,2000
+submarine,,sub_duel_v3,178,grenade,6,explosion_depth,relative explosion depth / max_depth_game_units,"[-1,1]",0,450
+submarine,,sub_duel_v3,179,grenade,6,time_to_explosion,time_to_explosion_s / 120,"[0,1]",0,120
+submarine,,sub_duel_v3,180,grenade,6,effect_radius,effect_radius_m / 500,"[0,1]",0,500
+submarine,,sub_duel_v3,181,grenade,6,ownership,1 own; -1 foreign,"[-1,1]",0,1
+submarine,,sub_duel_v3,182,obstacle_ray,,proximity_neg_150_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+submarine,,sub_duel_v3,183,obstacle_ray,,proximity_neg_120_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+submarine,,sub_duel_v3,184,obstacle_ray,,proximity_neg_90_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+submarine,,sub_duel_v3,185,obstacle_ray,,proximity_neg_60_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+submarine,,sub_duel_v3,186,obstacle_ray,,proximity_neg_45_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+submarine,,sub_duel_v3,187,obstacle_ray,,proximity_neg_30_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+submarine,,sub_duel_v3,188,obstacle_ray,,proximity_neg_15_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+submarine,,sub_duel_v3,189,obstacle_ray,,proximity_0_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+submarine,,sub_duel_v3,190,obstacle_ray,,proximity_pos_15_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+submarine,,sub_duel_v3,191,obstacle_ray,,proximity_pos_30_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+submarine,,sub_duel_v3,192,obstacle_ray,,proximity_pos_45_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+submarine,,sub_duel_v3,193,obstacle_ray,,proximity_pos_60_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+submarine,,sub_duel_v3,194,obstacle_ray,,proximity_pos_90_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+submarine,,sub_duel_v3,195,obstacle_ray,,proximity_pos_120_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+submarine,,sub_duel_v3,196,obstacle_ray,,proximity_pos_150_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+submarine,,sub_duel_v3,197,obstacle_ray,,proximity_pos_180_deg,1 - obstacle_or_boundary_distance_m / 1000,"[0,1]",0,1000
+submarine,,sub_duel_v3,198,waypoint,,waypoint_bearing_sin,right / distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,199,waypoint,,waypoint_bearing_cos,forward / distance,"[-1,1]",0,1
+submarine,,sub_duel_v3,200,waypoint,,waypoint_distance_ratio,distance_m / 5000 clipped,"[0,1]",0,5000

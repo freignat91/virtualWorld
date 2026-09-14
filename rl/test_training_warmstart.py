@@ -31,6 +31,42 @@ class SeedEnv(gym.Env):
 
 
 class TrainingWarmStartTest(unittest.TestCase):
+    def test_review_limit_preserves_schedules_and_records_budget(self) -> None:
+        self.save_source()
+        self.config['training'].update(total_steps=64, n_envs=1)
+        self.config['env']['curriculum_fraction'] = .5
+        native_learn = RecurrentPPO.learn
+
+        def learn(model, *args, **kwargs):
+            self.assertEqual(8, kwargs['total_timesteps'])
+            self.assertEqual(64, kwargs['callback'][0].total_steps)
+            result = native_learn(model, *args, **kwargs)
+            self.assertEqual(8, model.num_timesteps)
+            return result
+
+        with patch.object(train_ai, 'BASE_DIR', self.root), \
+                patch.object(train_ai, 'load_config', return_value=self.config), \
+                patch.object(train_ai, 'make_env', return_value=SeedEnv) as factory, \
+                patch.object(RecurrentPPO, 'learn', learn), \
+                patch('sys.argv', ['train_ai', '--run-name', 'review', '--device', 'cpu',
+                                   '--resume', str(self.source), '--stop-after-steps', '8']):
+            train_ai.main()
+            self.assertTrue(all(call.kwargs['curriculum_decisions'] == 32
+                                for call in factory.call_args_list if not call.kwargs.get('evaluation')))
+        effective = json.loads((self.root/'models_rl/review/effective_config.json').read_text())
+        self.assertEqual(64, effective['training']['total_steps'])
+        self.assertEqual(8, effective['requested_steps_this_invocation'])
+        self.assertTrue((self.root/'models_rl/review/policy_final.zip').is_file())
+
+    def test_review_limit_rejected_before_output_creation(self) -> None:
+        for value in ('0', '-1', '33'):
+            with patch.object(train_ai, 'BASE_DIR', self.root), \
+                    patch.object(train_ai, 'load_config', return_value=self.config), \
+                    patch('sys.argv', ['train_ai', '--run-name', 'invalid',
+                                       '--stop-after-steps', value]), self.assertRaises(SystemExit):
+                train_ai.main()
+            self.assertFalse((self.root/'models_rl').exists())
+
     def setUp(self) -> None:
         self.temporary = TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
@@ -126,6 +162,48 @@ class TrainingWarmStartTest(unittest.TestCase):
             load.assert_not_called()
         self.assertEqual(sentinel.read_text(), "existing configuration")
         self.assertEqual(list(self.output.iterdir()), [sentinel])
+
+    def test_fresh_model_without_resume(self) -> None:
+        source_model = self.save_source()
+        self.config["training"].update(seed=2542, n_envs=1)
+        original_learn = RecurrentPPO.learn
+
+        def learn(model, *args, **kwargs):
+            self.assertEqual(model.seed, 2542)
+            self.assertEqual(model.num_timesteps, 0)
+            self.assertTrue(any(
+                not torch.equal(value, model.policy.state_dict()[key])
+                for key, value in source_model.policy.state_dict().items()))
+            return original_learn(model, *args, **kwargs)
+
+        with patch.object(train_ai, "BASE_DIR", self.root), \
+                patch.object(train_ai, "load_config", return_value=self.config), \
+                patch.object(train_ai, "make_env", return_value=SeedEnv), \
+                patch.object(RecurrentPPO, "load") as load, \
+                patch.object(RecurrentPPO, "learn", learn), \
+                patch("sys.argv", ["train_ai", "--run-name", "new_phase", "--device", "cpu"]):
+            train_ai.main()
+            load.assert_not_called()
+        provenance = json.loads((self.output / "provenance.json").read_text())
+        self.assertEqual(provenance["phase"], "new_model")
+        self.assertEqual(provenance["seed"], 2542)
+        self.assertEqual(provenance["checkpoint_timesteps"], 0)
+        self.assertIsNone(provenance["checkpoint_source"])
+        self.assertIsNone(provenance["checkpoint_sha256"])
+        effective = json.loads((self.output / "effective_config.json").read_text())
+        self.assertIsNone(effective["resume"])
+
+    def test_v6_only_changes_identity_seed_and_pilot_duration(self) -> None:
+        v5 = train_ai.load_config(str(train_ai.BASE_DIR / "configs/aidest_v5.json"))
+        v6 = train_ai.load_config(str(train_ai.BASE_DIR / "configs/aidest_v6.json"))
+        self.assertEqual(v6["name"], "aidest_v6")
+        self.assertEqual(v6["training"]["seed"], 2542)
+        self.assertEqual(v6["training"]["total_steps"], 500000)
+        for key in ("name", "description"):
+            v6[key] = v5[key]
+        for key in ("seed", "total_steps"):
+            v6["training"][key] = v5["training"][key]
+        self.assertEqual(v5, v6)
 
     def test_v5_only_changes_phase_identity_and_seed(self) -> None:
         v4 = train_ai.load_config(str(train_ai.BASE_DIR / "configs/aidest_v4.json"))

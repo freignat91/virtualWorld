@@ -61,7 +61,14 @@ class EvaluationReportsTest(unittest.TestCase):
             self.assertIn("agent_hp", episode)
             self.assertIn("opponent_hp", episode)
             self.assertIn("invalid_weapons", episode)
+            self.assertIn("stationary_unengaged_decisions", episode)
             self.assertEqual(episode["opponent"], "bt:submarine/autosub")
+        for key in ("mean_acquired_weapons", "mean_unacquired_weapons",
+                    "unacquired_weapon_fraction", "misaligned_weapon_fraction",
+                    "stationary_fraction", "stationary_unengaged_fraction",
+                    "zero_weapon_episode_fraction", "invalid_weapon_request_fraction",
+                    "sonar_request_efficiency"):
+            self.assertIn(key, report)
         manifest = report["opponent_manifest"][0]
         self.assertEqual(manifest, artifact_manifest(Path("bots/ai/autosub.json")))
         json.dumps(report, allow_nan=False)

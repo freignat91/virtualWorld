@@ -32,7 +32,16 @@ def evaluate(model: RecurrentPPO, map_name: str, boat_type: str, opponent_ai: st
              opponent_pool_boat_type: str = "submarine",
              agent_control_version: str | None = None,
              env_options: dict | None = None,
-             include_episodes: bool = False) -> dict:
+             include_episodes: bool = False, *, deterministic: bool = True,
+             action_seed_offset: int = 0) -> dict:
+    if type(episodes) is not int or episodes < 0:
+        raise ValueError("episodes doit etre un entier positif ou nul")
+    if type(deterministic) is not bool or type(action_seed_offset) is not int:
+        raise ValueError("mode ou decalage de graine invalide")
+    if deterministic and action_seed_offset:
+        raise ValueError("decalage des actions reserve au mode echantillonne")
+    if not deterministic and not 0 <= seed + action_seed_offset <= 2**63 - episodes:
+        raise ValueError("plage de graines des actions invalide")
     options = dict(env_options or {})
     env = SubmarineDuelEnv(
         map_name=map_name,
@@ -67,6 +76,9 @@ def evaluate(model: RecurrentPPO, map_name: str, boat_type: str, opponent_ai: st
             opponent_manifest = [artifact_manifest(path) for path in opponent_paths]
         for episode in range(episodes):
             observation, _ = env.reset(seed=seed + episode)
+            if not deterministic:
+                import torch
+                torch.manual_seed(seed + episode + action_seed_offset)
             state = None
             episode_start = np.ones((1,), dtype=bool)
             episode_reward = 0.0
@@ -74,7 +86,7 @@ def evaluate(model: RecurrentPPO, map_name: str, boat_type: str, opponent_ai: st
             while True:
                 action, state = model.predict(
                     observation, state=state,
-                    episode_start=episode_start, deterministic=True)
+                    episode_start=episode_start, deterministic=deterministic)
                 observation, reward, terminated, truncated, info = env.step(action)
                 episode_reward += reward
                 decisions += 1
@@ -82,16 +94,23 @@ def evaluate(model: RecurrentPPO, map_name: str, boat_type: str, opponent_ai: st
                 if terminated or truncated:
                     outcomes[info.get("outcome", "unknown")] += 1
                     for key in (
-                            "weapons", "invalid_weapons", "lures", "sonars",
+                            "decisions", "weapon_requests", "weapons", "invalid_weapons",
+                            "acquired_weapons", "unacquired_weapons",
+                            "acquired_torpedoes", "misaligned_weapons",
+                            "stationary_decisions", "stationary_unengaged_decisions",
+                            "lures", "sonar_requests", "sonars",
                             "invalid_sonars", "contacts", "physics_steps",
                             "acoustic_torpedoes", "autonomous_torpedoes",
                             "cannon_shots", "grenades", "mines", "invalid_mines",
                             "surface_mines", "bottom_mines", "suspended_mines"):
                         totals[key] += info.get(key, 0)
+                    if info.get("weapons", 0) == 0:
+                        totals["zero_weapon_episodes"] += 1
                     rewards.append(episode_reward)
                     if include_episodes:
                         episode_results.append({
                             **info, "seed": seed + episode,
+                            "action_seed": None if deterministic else seed + episode + action_seed_offset,
                             "length": decisions, "reward": float(episode_reward),
                             "terminated": bool(terminated), "truncated": bool(truncated),
                         })
@@ -114,6 +133,20 @@ def evaluate(model: RecurrentPPO, map_name: str, boat_type: str, opponent_ai: st
         "mean_reward": float(np.mean(rewards)) if rewards else 0.0,
         "mean_weapons": totals["weapons"] / max(1, episodes),
         "mean_invalid_weapons": totals["invalid_weapons"] / max(1, episodes),
+        "invalid_weapon_request_fraction": (
+            totals["invalid_weapons"] / max(1, totals["weapon_requests"])),
+        "mean_acquired_weapons": totals["acquired_weapons"] / max(1, episodes),
+        "mean_unacquired_weapons": totals["unacquired_weapons"] / max(1, episodes),
+        "unacquired_weapon_fraction": (
+            totals["unacquired_weapons"] / max(1, totals["weapons"])),
+        "misaligned_weapon_fraction": (
+            totals["misaligned_weapons"] / max(1, totals["acquired_torpedoes"])),
+        "stationary_fraction": (
+            totals["stationary_decisions"] / max(1, totals["decisions"])),
+        "stationary_unengaged_fraction": (
+            totals["stationary_unengaged_decisions"] / max(1, totals["decisions"])),
+        "zero_weapon_episode_fraction": totals["zero_weapon_episodes"] / max(1, episodes),
+        "sonar_request_efficiency": totals["sonars"] / max(1, totals["sonar_requests"]),
         "mean_lures": totals["lures"] / max(1, episodes),
         "mean_sonars": totals["sonars"] / max(1, episodes),
         "mean_invalid_sonars": totals["invalid_sonars"] / max(1, episodes),
@@ -130,7 +163,8 @@ def evaluate(model: RecurrentPPO, map_name: str, boat_type: str, opponent_ai: st
         "mean_physics_steps": totals["physics_steps"] / max(1, episodes),
     }
     if include_episodes:
-        result.update(seed=seed, env=effective_env,
+        result.update(seed=seed, deterministic=deterministic,
+                      action_seed_offset=action_seed_offset, env=effective_env,
                       opponent_manifest=opponent_manifest,
                       episode_results=episode_results)
     return result

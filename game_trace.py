@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 from logging.handlers import RotatingFileHandler
+import math
 from pathlib import Path
 import subprocess
 import time
@@ -67,7 +68,10 @@ cannon_hit cannon_impact position_correct
 
 RL_RESULT_FIELDS = frozenset("""
 weapon_requested weapon_fired weapon_invalid weapon_kind
-lure_requested lure_dropped lure_invalid sonar_requested sonar_pinged sonar_invalid
+weapon_had_acquisition weapon_without_acquisition weapon_misaligned
+weapon_contact_age_s weapon_bearing_error_deg
+ lure_requested lure_dropped lure_invalid lure_without_threat
+ sonar_requested sonar_pinged sonar_invalid
 mine_requested mine_placed mine_invalid mine_kind
 """.split())
 
@@ -283,6 +287,75 @@ class GameTrace:
             if "reason" in values:
                 fields["reason"] = values["reason"]
             self._write("event", {"name": type(event).__name__, "fields": fields})
+        except Exception:
+            self._disable()
+
+    def route_planned(self, data: Dict[str, Any]) -> None:
+        """Enregistre une route v16 complete sans accepter de champs arbitraires."""
+        if not self.enabled:
+            return
+        try:
+            scalar_keys = (
+                "unit_meters", "direct_distance_m", "planned_distance_m",
+                "destination_clearance_m", "intermediate_clearance_m",
+                "route_node_margin_m", "direct_goal_distance_m",
+            )
+            optional_scalar_keys = (
+                "graph_distance_m", "planned_to_graph_ratio", "graph_detour_ratio")
+            fields = {
+                "player_id": data["player_id"],
+                "runtime_version": data["runtime_version"],
+                "model_id": data.get("model_id"),
+                "model_sha256": data.get("model_sha256"),
+            }
+            if (not isinstance(fields["player_id"], str)
+                    or fields["runtime_version"] != "v16"
+                    or any(value is not None and not isinstance(value, str)
+                           for value in (fields["model_id"], fields["model_sha256"]))):
+                raise TypeError("invalid route identity")
+            for key in scalar_keys:
+                value = data[key]
+                if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+                    raise TypeError("invalid route scalar")
+                fields[key] = value
+            for key in optional_scalar_keys:
+                value = data.get(key)
+                if (value is not None and (type(value) not in (int, float)
+                                           or not math.isfinite(value) or value < 0)):
+                    raise TypeError("invalid optional route scalar")
+                fields[key] = value
+
+            def point(value: Any, *, waypoint: bool = False) -> Dict[str, Any]:
+                required = {"x", "z"}
+                if waypoint:
+                    required |= {"index", "kind", "arrival_radius_m"}
+                if not isinstance(value, dict) or set(value) != required:
+                    raise TypeError("invalid route point")
+                if any(type(value[key]) not in (int, float) or not math.isfinite(value[key])
+                       for key in ("x", "z")):
+                    raise TypeError("invalid route coordinate")
+                result = {"x": value["x"], "z": value["z"]}
+                if waypoint:
+                    if (type(value["index"]) is not int or value["index"] < 0
+                            or value["kind"] not in {"intermediate", "final"}
+                            or type(value["arrival_radius_m"]) not in (int, float)
+                            or not math.isfinite(value["arrival_radius_m"])
+                            or value["arrival_radius_m"] <= 0):
+                        raise TypeError("invalid route waypoint")
+                    result.update(index=value["index"], kind=value["kind"],
+                                  arrival_radius_m=value["arrival_radius_m"])
+                return result
+
+            fields["start"] = point(data["start"])
+            fields["destination"] = point(data["destination"])
+            waypoints = data["waypoints"]
+            graph_path = data["graph_path"]
+            if (not isinstance(waypoints, list) or not 1 <= len(waypoints) <= 256
+                    or not isinstance(graph_path, list) or len(graph_path) > 1024):
+                raise TypeError("invalid route point count")
+            fields["waypoints"] = [point(value, waypoint=True) for value in waypoints]
+            fields["graph_path"] = [point(value) for value in graph_path]
+            self._write("route_planned", fields)
         except Exception:
             self._disable()
 

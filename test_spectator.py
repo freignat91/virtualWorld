@@ -4,8 +4,10 @@ import ast
 import copy
 from functools import wraps
 import logging
+import math
 from pathlib import Path
 import time
+from types import SimpleNamespace
 import unittest
 
 from flask import Flask, request
@@ -18,22 +20,31 @@ class SpectatorTest(unittest.TestCase):
         cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "GameSocketIO")
         self.ns = {"SocketIO": SocketIO, "wraps": wraps, "request": request,
                    "emit": emit, "spectator_sids": set(), "logging": logging, "time": time,
-                   "autogame_preparation": None}
+                   "math": math, "autogame_preparation": None, "autogame_mode": False,
+                   "autogame_display_path": 0, "autogame_manual_checkpoint": 0}
         exec(compile(ast.Module(body=[cls], type_ignores=[]), "server.py", "exec"), self.ns)
         app = Flask(__name__)
         self.app = app
         app.config["SECRET_KEY"] = "test-only"
         self.io = self.ns["GameSocketIO"](app, async_mode="threading")
+        self.route_traces = []
         self.ns.update(socketio=self.io, _socket_emit=self.io.emit, MAX_HUMAN_PLAYERS=0,
+                       game_trace=SimpleNamespace(
+                           enabled=False, route_planned=self.route_traces.append,
+                           _disable=lambda: None),
                        players={"bot-sid": {"id": "bot", "is_bot": True, "team_id": "red"}},
                        bots={"bot": {"state": "unchanged"}}, torpedo_ammo={}, grenade_ammo={},
+                       autogame_boats=[], UNIT_METERS_BOT=10.0,
                        player_boats_sids={}, human_owner_sid={}, autopiloted_sids=set(),
                        torpedoes_server={}, drones_server={}, grenades_server={}, server_lures={},
                        sonar_beacons={}, passive_sonar_beacons={}, mines_server={},
                        load_world=lambda: {"ground": {"width": 100, "depth": 100}, "islands": []},
+                       point_on_any_island=lambda x, z, world: False,
+                       min_distance_to_islands=lambda x, z, world: float("inf"),
                        day_cycle_snapshot=lambda: {"state": "off"}, _mine_payload=lambda m: dict(m))
         nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef) and (
-            n.name in ("_list_active_teams", "_emit_one") or any(
+            n.name in ("_list_active_teams", "_emit_one", "_r", "_round_pos",
+                       "_autogame_waypoint_payload", "_dispatch_player_moved") or any(
                 isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute)
                 and isinstance(d.func.value, ast.Name) and d.func.value.id == "socketio"
                 for d in n.decorator_list))]
@@ -53,6 +64,9 @@ class SpectatorTest(unittest.TestCase):
         self.assertEqual([p["name"] for p in received], ["init"])
         payload = received[0]["args"][0]
         self.assertTrue(payload["spectator"])
+        self.assertFalse(payload["autogame"])
+        self.assertEqual(payload["displayPath"], 0)
+        self.assertEqual(payload["manualCheckpoint"], 0)
         self.assertNotIn("boat", payload)
         self.assertNotIn("playerId", payload)
         self.assertEqual(payload["players"], self.ns["players"])
@@ -156,6 +170,95 @@ class SpectatorTest(unittest.TestCase):
         self.assertEqual(self.client.emit("spectate", callback=True), {"error": "already_playing"})
         self.assertFalse(self.ns["spectator_sids"])
         del self.ns["players"][sid]
+
+    def test_rl_waypoint_is_copied_only_in_autogame(self) -> None:
+        self.ns["bots"]["bot"] = {
+            "id": "bot",
+            "rl_waypoint": {"x": 12.34567, "z": -45.67891},
+            "rl_manual_checkpoint": True,
+            "position": {"x": 0.0, "y": -0.2, "z": 0.0},
+            "rl_controller": SimpleNamespace(
+                next_decision_at=5.0,
+                runtime_version="v16",
+                destination_clearance_m=100.0,
+                final_waypoint_radius_m=500.0,
+                intermediate_waypoint_radius_m=500.0,
+                plan_route=lambda _world, _start, goal, planner=None: (goal,),
+                route_trace=lambda player_id, start, destination, route, planner: {
+                    "player_id": player_id, "runtime_version": "v16",
+                    "start": start, "destination": destination, "route": route},
+            ),
+        }
+        self.assertEqual(self.ns["_autogame_waypoint_payload"]("bot"), {})
+
+        self.ns["autogame_mode"] = True
+        self.ns["autogame_display_path"] = 1
+        self.ns["autogame_manual_checkpoint"] = 1
+        self.ns["autogame_boats"] = [{"id": "bot"}]
+        self.assertEqual(self.client.emit("spectate", callback=True), {"spectator": True})
+        payload = self.client.get_received()[0]["args"][0]
+        self.assertTrue(payload["autogame"])
+        self.assertEqual(payload["displayPath"], 1)
+        self.assertEqual(payload["manualCheckpoint"], 1)
+        self.assertEqual(payload["players"]["bot-sid"]["rlWaypoint"],
+                         {"x": 12.346, "z": -45.679})
+        self.assertNotIn("rlWaypoint", self.ns["players"]["bot-sid"])
+
+        event = SimpleNamespace(
+            player_id="bot", position={"x": 1.234, "y": 0.0, "z": 5.678},
+            rotation=0.0, rudder=0.0, reverse=False, speed_ratio=0.5,
+            integrity=100.0, max_integrity=100.0, submerged=False)
+        self.ns["_dispatch_player_moved"](event)
+        moved = self.client.get_received()[0]["args"][0]
+        self.assertEqual(moved["rlWaypoint"], {"x": 12.346, "z": -45.679})
+
+        self.ns["autogame_preparation"] = {"startDelaySeconds": 30}
+        self.ns["load_world"] = lambda: {
+            "ground": {"width": 200, "depth": 200}, "islands": []}
+        self.ns["game_trace"].enabled = True
+        result = self.client.emit(
+            "set_autogame_checkpoint", {"id": "bot", "x": 60, "z": 10}, callback=True)
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.ns["bots"]["bot"]["rl_waypoint"], {"x": 60.0, "z": 10.0})
+        self.assertEqual(self.ns["bots"]["bot"]["rl_destination"], {"x": 60.0, "z": 10.0})
+        self.assertEqual(self.ns["bots"]["bot"]["rl_route_start"], {"x": 0.0, "z": 0.0})
+        self.assertEqual(self.ns["bots"]["bot"]["rl_route"], [{"x": 60.0, "z": 10.0}])
+        self.assertEqual(self.ns["bots"]["bot"]["rl_route_waypoints"], [])
+        self.assertEqual(self.ns["_autogame_waypoint_payload"]("bot"), {
+            "rlWaypoint": {"x": 60.0, "z": 10.0},
+            "rlDestination": {"x": 60.0, "z": 10.0},
+        })
+        self.assertEqual(
+            self.ns["_autogame_waypoint_payload"]("bot", include_route=True)["rlRoute"],
+            [{"x": 0.0, "z": 0.0}, {"x": 60.0, "z": 10.0}])
+        self.assertEqual(
+            self.ns["_autogame_waypoint_payload"]("bot", include_route=True)[
+                "rlRouteProfile"],
+            {"version": "v16", "finalRadiusMeters": 500.0,
+             "intermediateRadiusMeters": 500.0})
+        self.assertEqual(1, len(self.route_traces))
+        self.assertEqual("bot", self.route_traces[0]["player_id"])
+        self.assertEqual(self.ns["bots"]["bot"]["rl_controller"].next_decision_at, 0.0)
+        checkpoint = self.client.get_received()[0]
+        self.assertEqual(checkpoint["name"], "autogame_checkpoint_set")
+        self.assertEqual(checkpoint["args"][0]["waypoint"], {"x": 60.0, "z": 10.0})
+        self.assertEqual(checkpoint["args"][0]["destination"], {"x": 60.0, "z": 10.0})
+        self.assertEqual(checkpoint["args"][0]["segmentCount"], 1)
+        self.assertEqual(checkpoint["args"][0]["route"],
+                         [{"x": 0.0, "z": 0.0}, {"x": 60.0, "z": 10.0}])
+        self.assertEqual(
+            self.client.emit("set_autogame_checkpoint", {"id": "bot", "x": 90, "z": 0},
+                             callback=True),
+            {"error": "invalid_checkpoint_position"})
+        self.ns["min_distance_to_islands"] = lambda x, z, world: 10.0
+        self.assertEqual(
+            self.client.emit("set_autogame_checkpoint", {"id": "bot", "x": 20, "z": 0},
+                             callback=True),
+            {"error": "invalid_checkpoint_position"})
+        self.assertEqual(
+            self.client.emit("set_autogame_checkpoint", {"id": "bot", "x": 100, "z": 0},
+                             callback=True),
+            {"error": "invalid_checkpoint_position"})
 
 
 if __name__ == "__main__":
