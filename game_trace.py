@@ -291,7 +291,7 @@ class GameTrace:
             self._disable()
 
     def route_planned(self, data: Dict[str, Any]) -> None:
-        """Enregistre une route v16 complete sans accepter de champs arbitraires."""
+        """Enregistre une route versionnee sans accepter de champs arbitraires."""
         if not self.enabled:
             return
         try:
@@ -301,7 +301,8 @@ class GameTrace:
                 "route_node_margin_m", "direct_goal_distance_m",
             )
             optional_scalar_keys = (
-                "graph_distance_m", "planned_to_graph_ratio", "graph_detour_ratio")
+                "graph_distance_m", "planned_to_graph_ratio", "graph_detour_ratio",
+                "max_planned_segment_m", "near_axis_search_radius_m")
             fields = {
                 "player_id": data["player_id"],
                 "runtime_version": data["runtime_version"],
@@ -309,7 +310,7 @@ class GameTrace:
                 "model_sha256": data.get("model_sha256"),
             }
             if (not isinstance(fields["player_id"], str)
-                    or fields["runtime_version"] != "v16"
+                    or fields["runtime_version"] not in {"v16", "v17"}
                     or any(value is not None and not isinstance(value, str)
                            for value in (fields["model_id"], fields["model_sha256"]))):
                 raise TypeError("invalid route identity")
@@ -355,6 +356,12 @@ class GameTrace:
                 raise TypeError("invalid route point count")
             fields["waypoints"] = [point(value, waypoint=True) for value in waypoints]
             fields["graph_path"] = [point(value) for value in graph_path]
+            segment_distances = data.get("planned_segment_distances_m", [])
+            if (not isinstance(segment_distances, list) or len(segment_distances) > 256
+                    or any(type(value) not in (int, float) or not math.isfinite(value)
+                           or value < 0 for value in segment_distances)):
+                raise TypeError("invalid route segment distances")
+            fields["planned_segment_distances_m"] = segment_distances
             self._write("route_planned", fields)
         except Exception:
             self._disable()

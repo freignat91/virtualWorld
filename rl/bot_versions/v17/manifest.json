@@ -1,0 +1,23 @@
+{
+  "runtimeVersion": "v17",
+  "status": "official_read_only",
+  "selectedOn": "2026-09-14",
+  "immutable": true,
+  "models": {
+    "aisub_mobility_runtime_v17": "7a0daa4f83a3211135c5efd05d5b68038d8b789772f7af273813f961df15ea47",
+    "aidest_mobility_runtime_v17": "a6a53fe853cd013b8508a9f4d7b71f81179dfcd5c2ad98051a194225345fc672"
+  },
+  "validationReports": {
+    "submarine": "5d15eddd98c498bff7c6cbe6f13f83024cfcdfd21955fce2b9d02e4d6b10853a",
+    "destroyer": "482cb7c6b44f93c5e2585a0bda1decd1fe2562ff80d0adc9d40f7b1ba5c84a9d"
+  },
+  "files": {
+    "geometry.py": "927e4da1212ee2c2d164339449a8c06cd6adbd8b77c4f0f71db462c5287b21ec",
+    "nav_graph.py": "7bfbeb3cb3b7f390d9d5d6084d1eb6e94f8d6d8125819805ff28d11f24e19bc3",
+    "navigable_path.py": "fe5f08b0228c25b5cdf5848a8c8c563d31a3feda895ac749431b0dd9e59edf96",
+    "waypoints.py": "c1cb0fda5d64a6bf97556fc43a396fb265254f178ef7f0a9dd580ebec18f5837",
+    "rl_control.py": "b6737014d57ae901279022b3da5d83849323bc8159625f5bfe8df87f4029aaec",
+    "masked_recurrent_policy.py": "2c0e965ffb92ee4a11b3e248b2619ba81f22b2a0d8c6972346d88b4d40bbe883",
+    "runtime.py": "281cd4457356edd7a1ca6a4ae95e1de47dd2453510fefb7c561358c6f0fa5afb"
+  }
+}

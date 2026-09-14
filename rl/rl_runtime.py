@@ -34,6 +34,10 @@ _V16_MODELS = frozenset({
     "aisub_mobility_runtime_v16",
     "aidest_mobility_runtime_v16",
 })
+_V17_MODELS = frozenset({
+    "aisub_mobility_runtime_v17",
+    "aidest_mobility_runtime_v17",
+})
 
 
 def _runtime_for_ai(ai_name: str):
@@ -45,6 +49,10 @@ def _runtime_for_ai(ai_name: str):
         return runtime
     if run_name in _V16_MODELS:
         from rl.bot_versions.v16 import runtime
+
+        return runtime
+    if run_name in _V17_MODELS:
+        from rl.bot_versions.v17 import runtime
 
         return runtime
     return None

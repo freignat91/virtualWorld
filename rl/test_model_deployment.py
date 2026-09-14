@@ -23,8 +23,8 @@ class ModelConfigTest(unittest.TestCase):
         defaults = public_bot_models({})
         self.assertEqual(set(defaults), set(public_bot_models(json.loads(
             (ROOT / "config/conffile.json").read_text()))))
-        self.assertEqual("aisub_mobility_runtime_v16", defaults["bot_rl_sub"])
-        self.assertEqual("aidest_mobility_runtime_v16", defaults["bot_rl_destroyer"])
+        self.assertEqual("aisub_mobility_runtime_v17", defaults["bot_rl_sub"])
+        self.assertEqual("aidest_mobility_runtime_v17", defaults["bot_rl_destroyer"])
         config = dict(defaults, bot_rl_destroyer="aidest_v4_scripted:policy_250000_steps", secret="hidden")
         self.assertEqual(config["bot_rl_destroyer"], public_bot_models(config)["bot_rl_destroyer"])
         self.assertNotIn("secret", public_bot_models(config))

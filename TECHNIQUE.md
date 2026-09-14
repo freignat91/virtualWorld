@@ -2,29 +2,33 @@
 
 Document de référence pour comprendre le fonctionnement client/serveur du jeu, les events réseau, les pipelines de tir, et les responsabilités de chaque côté.
 
-## Runtime De Mobilite V16 Officiel (2026-09-14)
+## Runtime De Mobilite V17 Final (2026-09-14)
 
-Les selections publiques finales sont `aisub_mobility_runtime_v16` et
-`aidest_mobility_runtime_v16`. Chaque version possede son code fige sous
-`rl/bot_versions/v16/`, son manifeste SHA256 et ses propres copies physiques de
-modeles ; v15 reste independante et inchangee. Les rayons d'arrivee final et
-intermediaire valent500 m.
+Les selections publiques finales sont `aisub_mobility_runtime_v17` et
+`aidest_mobility_runtime_v17`. Leur code fige vit sous `rl/bot_versions/v17/`,
+avec manifeste SHA256 et copies physiques propres des modeles. Les poids restent
+identiques aux selections v16; v15 et v16 demeurent independantes et inchangees.
+Les rayons d'arrivee final et intermediaire valent500 m.
 
 Pour une destination distante de plus de7,5 km, le planificateur cherche d'abord
 le nombre minimal de points intermediaires sur l'axe depart-arrivee. Chaque point
-doit conserver500 m de marge avec les iles et limites, et chaque segment reste au
-plus long de7,5 km. Si aucun decoupage aligne n'est possible, la segmentation du
-plus court chemin Dijkstra sert de repli. La trace `route_planned` conserve route
-exposee, chemin Dijkstra, distances et ratios pour les diagnostics.
+doit conserver500 m de marge avec les iles et limites. Si cet axe est bloque, v17
+evalue des couches de candidats surs dans un rayon de3 km autour de l'axe et
+minimise la longueur totale. La segmentation du plus court chemin Dijkstra reste
+le dernier repli. Chaque segment expose est limite a7,5 km. La trace
+`route_planned` accepte v16/v17 et conserve route exposee, longueurs de segments,
+chemin Dijkstra, distances et ratios pour les diagnostics.
 
 La validation CPU deterministe de20 routes utilise les seeds533542 destroyer et
 523542 sous-marin, un timeout de1200 s et le curriculum de routes v14. Les deux
 coques atteignent100% d'arrivee,100% face aux obstacles,0 naufrage/blocage et
 aucune demande d'arme, leurre ou sonar. Le sous-marin passe toutes les gates. Le
-destroyer echoue uniquement la gate cotiere avec1 episode sur20,3,65 points de
-degat ; cette limite residuelle est acceptee explicitement pour la selection
-finale. V16 est desormais officielle et en lecture seule : aucun nouvel
-entrainement de mobilite ni modification de son code, ses modeles ou manifests.
+destroyer echoue uniquement la gate cotiere avec1 episode sur20,3,65 points sur
+200 perdus en frolant un cap sans collision avec une ile ; cette limite residuelle
+est acceptee explicitement. V17 clot definitivement la phase deplacement et passe
+en lecture seule : aucun nouvel entrainement de mobilite ni modification de son
+code, ses modeles ou manifests. La prochaine phase planifiee est le combat v18,
+sans preparation ni lancement a ce stade.
 
 ## Discipline RL Des Leurres Et Du Gouvernail (2026-09-12)
 
@@ -1227,7 +1231,7 @@ Tous les chemins passent par `apply_player_damage(sid, p, damage, attacker_id)` 
 - Burst budget `REGEN_MAX_BUDGET = 10 pts` (consommé) puis épuisement.
 - Total session `REGEN_TOTAL_INITIAL = 20 pts` cumulés sur toute la partie.
 - Taux : `REGEN_RATE_PER_S = 10 / (10 × 60)` ≈ 1/60 pt/s (10 pts en 10 minutes).
-- Plafond par instance `maxIntegrity`, pas 100; regeneration humaine uniquement comme auparavant.
+- Plafond par instance `maxIntegrity`, pas 100; regeneration identique pour humains, BT et RL.
 
 ### Notification au client
 

@@ -63,6 +63,9 @@ def init_hull_integrity(entity: Dict[str, Any]) -> None:
     integrity_capacity(boat.get("acousticLures") or {}, 10.0)
     entity["maxIntegrity"] = capacity
     entity["integrity"] = capacity
+    entity["regen_budget"] = REGEN_MAX_BUDGET
+    entity["regen_paused_at"] = 0.0
+    entity["regen_total_remaining"] = REGEN_TOTAL_INITIAL
 
 
 # ===================== Helpers géométriques (purs, sans état) =====================
@@ -1943,9 +1946,6 @@ class Sim:
             return
         init_hull_integrity(p)
         p["last_integrity"] = p["integrity"]
-        p["regen_budget"] = REGEN_MAX_BUDGET
-        p["regen_paused_at"] = 0.0
-        p["regen_total_remaining"] = REGEN_TOTAL_INITIAL
 
     def find_bot_by_player_id(self, pid: str) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         for sid, bot in self.bots.items():
@@ -2031,6 +2031,9 @@ class Sim:
         if not math.isfinite(damage) or damage <= 0 or bot["integrity"] <= 0:
             return
         bot["integrity"] = max(0.0, bot["integrity"] - damage)
+        bot["regen_paused_at"] = self.now()
+        bot["regen_budget"] = min(
+            REGEN_MAX_BUDGET, bot.get("regen_total_remaining", 0))
         if sid in self.players:
             self.players[sid]["integrity"] = bot["integrity"]
             self.players[sid]["maxIntegrity"] = bot.get("maxIntegrity", 100.0)
@@ -2217,8 +2220,33 @@ class Sim:
             }
         return changed
 
+    @staticmethod
+    def _regenerate_integrity(entity: Dict[str, Any], dt: float,
+                              now: float) -> Tuple[bool, bool]:
+        """Applique la reserve de regeneration commune apres le delai sans degat."""
+        if (entity.get("regen_budget", 0) <= 0
+                or entity.get("regen_total_remaining", 0) <= 0
+                or entity.get("integrity", 100.0) >= entity.get("maxIntegrity", 100.0)
+                or (now - entity.get("regen_paused_at", 0)) < REGEN_DELAY_S):
+            return False, False
+        gain = min(
+            REGEN_RATE_PER_S * dt,
+            entity.get("regen_budget", 0),
+            entity.get("regen_total_remaining", 0),
+            entity.get("maxIntegrity", 100.0) - entity.get("integrity", 100.0),
+        )
+        if gain <= 0:
+            return False, False
+        entity["integrity"] = entity.get("integrity", 100.0) + gain
+        entity["regen_budget"] = entity.get("regen_budget", 0) - gain
+        entity["regen_total_remaining"] = entity.get("regen_total_remaining", 0) - gain
+        done = (entity.get("integrity", 100.0) >= entity.get("maxIntegrity", 100.0)
+                or entity.get("regen_budget", 0) <= 0
+                or entity.get("regen_total_remaining", 0) <= 0)
+        return True, done
+
     def update_player_integrity(self, dt: float, world_data: Dict[str, Any]) -> None:
-        """Tick d'intégrité : danger côtier partagé, puis règles propres aux humains."""
+        """Tick d'integrite : danger cotier et regeneration partages."""
         now = self.now()
         for sid, bot in list(self.bots.items()):
             if bot.get("integrity", 100.0) <= 0:
@@ -2226,6 +2254,11 @@ class Sim:
             pos = bot.get("position") or {}
             if self.is_in_danger_zone(pos.get("x", 0), pos.get("z", 0), world_data):
                 self.bot_apply_damage(sid, bot, dt, None)
+            if bot.get("integrity", 100.0) > 0:
+                self._regenerate_integrity(bot, dt, now)
+            if sid in self.players:
+                self.players[sid]["integrity"] = bot.get("integrity", 100.0)
+                self.players[sid]["maxIntegrity"] = bot.get("maxIntegrity", 100.0)
         for sid, p in list(self.players.items()):
             if p.get("is_bot"):
                 continue
@@ -2248,29 +2281,11 @@ class Sim:
                     self.apply_player_damage(sid, p, damage, None)
                     if p.get("integrity", 100.0) <= 0:
                         continue
-            last_dmg = p.get("regen_paused_at", 0)
-            if (p.get("regen_budget", 0) > 0
-                    and p.get("regen_total_remaining", 0) > 0
-                    and p.get("integrity", 100.0) < p.get("maxIntegrity", 100.0)
-                    and (now - last_dmg) >= REGEN_DELAY_S):
-                gain = min(REGEN_RATE_PER_S * dt,
-                           p.get("regen_budget", 0),
-                           p.get("regen_total_remaining", 0),
-                           p.get("maxIntegrity", 100.0) - p.get("integrity", 100.0))
-                if gain > 0:
-                    p["integrity"] = p.get("integrity", 100.0) + gain
-                    p["regen_budget"] = p.get("regen_budget", 0) - gain
-                    p["regen_total_remaining"] = p.get("regen_total_remaining", 0) - gain
-                    # Opt 2 : throttle de la regen à ~4 Hz. On émet seulement tous
-                    # les 0.25 s, OU quand la regen vient de se terminer (intégrité
-                    # pleine, budget ou réserve épuisés) pour garantir la valeur
-                    # finale exacte côté client.
-                    regen_done = (p.get("integrity", 100.0) >= p.get("maxIntegrity", 100.0)
-                                  or p.get("regen_budget", 0) <= 0
-                                  or p.get("regen_total_remaining", 0) <= 0)
-                    if regen_done or (now - p.get("last_regen_emit", 0)) >= 0.25:
-                        p["last_regen_emit"] = now
-                        self._emit_integrity(sid, p)
+            regenerated, regen_done = self._regenerate_integrity(p, dt, now)
+            if (regenerated
+                    and (regen_done or (now - p.get("last_regen_emit", 0)) >= 0.25)):
+                p["last_regen_emit"] = now
+                self._emit_integrity(sid, p)
 
     # ===================== AUTOPILOTE HUMAIN (multi-bateaux) =====================
 

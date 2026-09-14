@@ -1,6 +1,6 @@
 {
-  "bot_rl_sub": "aisub_mobility_runtime_v16",
-  "bot_rl_destroyer": "aidest_mobility_runtime_v16",
+  "bot_rl_sub": "aisub_mobility_runtime_v17",
+  "bot_rl_destroyer": "aidest_mobility_runtime_v17",
   "server": {
     "port": 7000
   },

@@ -8,14 +8,14 @@
   "boats": [
     {
       "boatType": "destroyer",
-      "ai": "rl_aidest_mobility_runtime_v16",
+      "ai": "rl_aidest_mobility_runtime_v17",
       "teamId": "A",
       "position": {"x": -100, "y": -0.2, "z": 600},
       "rotation": 3.141592653589793
     },
     {
       "boatType": "submarine",
-      "ai": "rl_aisub_mobility_runtime_v16",
+      "ai": "rl_aisub_mobility_runtime_v17",
       "teamId": "A",
       "position": {"x": 100, "y": -3, "z": 600},
       "rotation": 0

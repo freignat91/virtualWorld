@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parent
 VERSIONS = {
     "v15": ROOT / "bot_versions/v15",
     "v16": ROOT / "bot_versions/v16",
+    "v17": ROOT / "bot_versions/v17",
 }
 
 
@@ -53,6 +54,7 @@ class BotVersionIsolationTest(unittest.TestCase):
     def test_aliases_dispatch_only_to_their_runtime(self) -> None:
         from rl.bot_versions.v15 import runtime as runtime_v15
         from rl.bot_versions.v16 import runtime as runtime_v16
+        from rl.bot_versions.v17 import runtime as runtime_v17
 
         cases = {
             "rl_aisub_mobility_runtime_v15": runtime_v15,
@@ -61,6 +63,10 @@ class BotVersionIsolationTest(unittest.TestCase):
             "rl_aidest_mobility_runtime_v16": runtime_v16,
             "rl_aisub_mobility_runtime_v16:source_v15": runtime_v16,
             "rl_aidest_mobility_runtime_v16:source_v15": runtime_v16,
+            "rl_aisub_mobility_runtime_v17:source_v16": runtime_v17,
+            "rl_aidest_mobility_runtime_v17:source_v16": runtime_v17,
+            "rl_aisub_mobility_runtime_v17": runtime_v17,
+            "rl_aidest_mobility_runtime_v17": runtime_v17,
         }
         for name, expected in cases.items():
             with self.subTest(name=name):
@@ -109,6 +115,35 @@ class BotVersionIsolationTest(unittest.TestCase):
             math.hypot(goal[0] - waypoint[0], goal[1] - waypoint[1]) * 10.0,
             v16.ROUTE_LONG_SEGMENT_M)
         self.assertNotEqual(route, v15.plan_segmented_route(world, start, goal))
+
+    def test_v17_near_axis_route_is_short_and_bounds_every_segment(self) -> None:
+        from rl.bot_versions.v16 import navigable_path as v16
+        from rl.bot_versions.v17 import geometry as v17_geometry
+        from rl.bot_versions.v17 import navigable_path as v17
+
+        world = json.loads(
+            (ROOT.parent / "maps/world.json").read_text(encoding="utf-8"))
+        start = (-1285.3958972943403, 207.53590070694236)
+        goal = (255.50660792951527, 877.7292576419212)
+        v16_route = v16.plan_segmented_route(world, start, goal)
+        route = v17.plan_segmented_route(world, start, goal)
+
+        def legs(points):
+            return [math.hypot(second[0] - first[0], second[1] - first[1]) * 10.0
+                    for first, second in zip(points, points[1:])]
+
+        v16_legs = legs((start, *v16_route))
+        route_legs = legs((start, *route))
+        direct_m = math.hypot(goal[0] - start[0], goal[1] - start[1]) * 10.0
+        self.assertGreater(max(v16_legs), v16.ROUTE_LONG_SEGMENT_M)
+        self.assertLessEqual(max(route_legs), v17.ROUTE_LONG_SEGMENT_M)
+        self.assertLess(sum(route_legs), sum(v16_legs))
+        self.assertLess(sum(route_legs), direct_m + 100.0)
+        for waypoint in route[:-1]:
+            self.assertFalse(v17_geometry.point_on_any_island(*waypoint, world))
+            self.assertGreater(
+                v17_geometry.min_distance_to_islands(*waypoint, world) * 10.0,
+                v17.ROUTE_CLEARANCE_M)
 
 
 if __name__ == "__main__":

@@ -245,8 +245,8 @@ Les boutons **Sub IA** et **Destroyer IA** lisent ces clés à la racine de
 
 ```json
 {
-  "bot_rl_sub": "aisub_mobility_runtime_v16",
-  "bot_rl_destroyer": "aidest_mobility_runtime_v16",
+  "bot_rl_sub": "aisub_mobility_runtime_v17",
+  "bot_rl_destroyer": "aidest_mobility_runtime_v17",
   "server": { "port": 7000 },
   "world": { "dayDurationSeconds": 1800 }
 }

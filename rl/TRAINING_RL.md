@@ -1,48 +1,52 @@
 # Entraînement des bots RL
 
-## Mobilite runtime v16 : selections finales officielles et figees
+## Mobilite runtime v17 : selections finales officielles et figees
 
-Le14 septembre2026, les candidats v16 ont ete declares selections finales de la
+Le14 septembre2026, les candidats v17 ont ete declares selections finales de la
 phase d'entrainement aux deplacements. Les aliases publics sont maintenant
-`aisub_mobility_runtime_v16` et `aidest_mobility_runtime_v16`, resolus vers
+`aisub_mobility_runtime_v17` et `aidest_mobility_runtime_v17`, resolus vers
 `best/best_model.zip`. Leurs poids sont des copies physiques independantes des
-artefacts v15 et conservent les SHA256 suivants :
+artefacts v16 et conservent les SHA256 suivants :
 
 - sous-marin `7a0daa4f83a3211135c5efd05d5b68038d8b789772f7af273813f961df15ea47` ;
 - destroyer `a6a53fe853cd013b8508a9f4d7b71f81179dfcd5c2ad98051a194225345fc672`.
 
-Le runtime autonome `rl/bot_versions/v16/` fixe les rayons final et intermediaire
+Le runtime autonome `rl/bot_versions/v17/` fixe les rayons final et intermediaire
 a500 m. Au-dela de7,5 km, il place prioritairement le nombre minimal de points
-surs sur l'axe direct, chacun a plus de500 m des obstacles et avec des segments
-de7,5 km maximum. La route Dijkstra demeure le repli si aucun decoupage aligne
-n'existe. `route_planned` trace les points exposes, le chemin Dijkstra interne,
-les distances et ratios. Le manifeste v16 est immutable ; v15 reste separee et
-inchangee.
+surs sur l'axe direct. Si aucun decoupage aligne n'existe, il cherche dans un
+rayon de3 km des candidats surs proches de l'axe et minimise la longueur totale;
+la route Dijkstra segmentee demeure le dernier repli. Chaque segment expose est
+limite a7,5 km. `route_planned` trace les points, leurs distances, le chemin
+Dijkstra interne et les ratios. Le manifeste v17 est immutable ; v16 reste
+separee, inchangee et en lecture seule.
 
 La validation finale a execute simultanement20 routes CPU deterministes avec
 timeout1200 s, seeds533542 destroyer et523542 sous-marin. Le sous-marin passe
 toutes les gates :100% arrivee/eau libre/obstacle,0 cotier/naufrage/blocage,
 0,063% stationnaire,0 recul, vitesse0,993, rectitude0,895 et0 demande d'arme,
-leurre ou sonar. Qualite diagnostique2,2879740326 ; rapport SHA256
-`1c6eccba0430a602d9e233b6d4c9e6bfe3f52edca6b1b77b55aa6e407509b7e5`.
+  leurre ou sonar. Qualite diagnostique2,2879740326 ; rapport SHA256
+`5d15eddd98c498bff7c6cbe6f13f83024cfcdfd21955fce2b9d02e4d6b10853a`.
 
 Le destroyer atteint aussi100% arrivee/eau libre/obstacle,0 naufrage/blocage,
 0,089% stationnaire,0,113% recul, vitesse0,994, rectitude0,867 et0 demande.
-Un episode `small_obstruction` sur20 subit3,65 points de degat cotier :5% contre
-la gate maximale1%. Cette unique gate echoue ; le risque est accepte explicitement
-par la decision de selection finale. Qualite diagnostique2,2352884833 ; rapport
-SHA256 `b996598f4ef7270a2d1ed3d2495c0764a458742b936ef99824b3e2d588fb28a9`.
+Un episode `small_obstruction` sur20 subit3,65 points sur200 de degat cotier en
+frolant un cap, sans collision avec une ile :5% contre la gate maximale1%. Cette
+unique gate echoue ; le risque est accepte explicitement par la decision de
+selection finale. Qualite diagnostique2,2352884833 ; rapport SHA256
+`482cb7c6b44f93c5e2585a0bda1decd1fe2562ff80d0adc9d40f7b1ba5c84a9d`.
 
 Rapports complets :
 
-- `models_rl/aisub_mobility_runtime_v16/evaluation/segmented_runtime_v16_aligned_final500_seed523542.json` ;
-- `models_rl/aidest_mobility_runtime_v16/evaluation/segmented_runtime_v16_aligned_final500_seed533542.json`.
+- `models_rl/aisub_mobility_runtime_v17/evaluation/segmented_runtime_v17_near_axis_final500_seed523542.json` ;
+- `models_rl/aidest_mobility_runtime_v17/evaluation/segmented_runtime_v17_near_axis_final500_seed533542.json`.
 
-La phase d'entrainement aux deplacements est close. V16 est officielle et en
+La phase d'entrainement et d'iteration des deplacements est close. V17 est finale,
+officielle et en
 lecture seule : ne plus entrainer, modifier, remplacer ou promouvoir son code,
 ses manifests et ses poids. Le suivi de validation ecrit desormais un fichier
 `*.progress.json` atomique apres chaque episode avec moyenne, temps restant et
 heure de fin estimee. Aucun processus de validation ou d'entrainement ne reste.
+La prochaine phase planifiee est le combat v18; elle n'est ni preparee ni lancee.
 
 ## Mobilite runtime v8 : deux pilotes actifs
 

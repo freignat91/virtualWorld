@@ -30,16 +30,19 @@ Optimize for compute and usage efficiency.
 
 # AI Bots — Architecture, Training, Invariants and Evaluation
 
-Latest mobility runtime v16 is OFFICIAL and READ-ONLY as of2026-09-14. Public
-aliases are aisub_mobility_runtime_v16/aidest_mobility_runtime_v16; isolated code
-and manifests live under bot_versions/v16, with physical best-model copies.
-Both deterministic20-route validations reach100% arrival/open/obstacle,0 sunk/
-stuck and no weapon/lure/sonar requests. Submarine passes every gate. Destroyer
-has one explicitly accepted residual failure:1/20 coastal episode,3.65HP; all
-other gates pass. Final/intermediate radii are500m; long routes prefer safe
-axis-aligned points, then Dijkstra fallback. Movement training is closed: do not
-modify/retrain/replace/promote v16 code, manifests or weights. See TRAINING_RL.md.
-Supersedes every older mobility ACTIVE/next-step status.
+Latest mobility runtime v17 is FINAL, OFFICIAL and READ-ONLY as of2026-09-14.
+Public aliases are aisub_mobility_runtime_v17/aidest_mobility_runtime_v17;
+isolated code and manifests live under bot_versions/v17, with physical best-model
+copies. Both deterministic20-route validations reach100% arrival/open/obstacle,
+0 sunk/stuck and no weapon/lure/sonar requests. Submarine passes every gate.
+Destroyer has one explicitly accepted residual failure:1/20 coastal graze,
+3.65/200HP; all other gates pass. Final/intermediate radii are500m; long routes
+prefer safe axis-aligned points, then shortest safe near-axis candidates, then
+segmented Dijkstra fallback, with every exposed segment<=7.5km. Movement training
+and runtime iteration are closed: do not modify/retrain/replace/promote v17 code,
+manifests or weights. V16 remains unchanged/read-only. Next planned phase is
+combat v18, not prepared or launched. See TRAINING_RL.md. Supersedes every older
+mobility ACTIVE/next-step status.
 
 Latest mobility runtime v8 pilots ACTIVE at2026-09-12 15:58+02: simultaneous
 fresh CUDA100k destroyer PID533844 seed77542 and submarine PID533854 seed78542.

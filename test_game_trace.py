@@ -117,9 +117,9 @@ class GameTraceTest(unittest.TestCase):
         self.assertNotIn("private", fields)
         self.assertNotIn("SECRET", self.path.read_text())
 
-    def test_v16_route_keeps_waypoints_graph_path_and_efficiency(self) -> None:
+    def test_versioned_route_keeps_waypoints_graph_path_and_efficiency(self) -> None:
         trace = self.trace(enabled=True)
-        trace.route_planned({
+        data = {
             "player_id": "bot001", "runtime_version": "v16",
             "model_id": "model", "model_sha256": "sha", "unit_meters": 10.0,
             "start": {"x": 0.0, "z": 0.0},
@@ -138,8 +138,11 @@ class GameTraceTest(unittest.TestCase):
             "graph_distance_m": 1495.0, "planned_to_graph_ratio": 1.0823,
             "graph_detour_ratio": 1.0571, "destination_clearance_m": 100.0,
             "intermediate_clearance_m": 500.0, "route_node_margin_m": 600.0,
-            "direct_goal_distance_m": 7500.0,
-        })
+            "direct_goal_distance_m": 7500.0, "max_planned_segment_m": 1118.0,
+            "near_axis_search_radius_m": 3000.0,
+            "planned_segment_distances_m": [500.0, 1118.0],
+        }
+        trace.route_planned(data)
         row = self.rows()[-1]
         self.assertEqual("route_planned", row["type"])
         self.assertEqual("v16", row["data"]["runtime_version"])
@@ -148,6 +151,10 @@ class GameTraceTest(unittest.TestCase):
             row["data"]["waypoints"][0]["z"]))
         self.assertEqual(3, len(row["data"]["graph_path"]))
         self.assertEqual(1.0823, row["data"]["planned_to_graph_ratio"])
+        self.assertEqual([500.0, 1118.0], row["data"]["planned_segment_distances_m"])
+        data["runtime_version"] = "v17"
+        trace.route_planned(data)
+        self.assertEqual("v17", self.rows()[-1]["data"]["runtime_version"])
 
     def test_integrity_maxima_and_nonlethal_lure_event(self) -> None:
         trace = self.trace(enabled=True)

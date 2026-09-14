@@ -94,6 +94,26 @@ class IntegrityTest(unittest.TestCase):
         self.sim.init_player_integrity("secondary")
         self.assertEqual((100, 100), (player["integrity"], player["maxIntegrity"]))
 
+    def test_bots_regenerate_like_humans_after_damage_delay(self) -> None:
+        for kind, capacity in (("destroyer", 200.0), ("submarine", 100.0)):
+            with self.subTest(kind=kind):
+                self.runner._time = 0.0
+                sid = self.runner.spawn_bot(
+                    kind, external_control=True, position=(100.0, 100.0))
+                bot = self.sim.bots[sid]
+                self.sim.bot_apply_damage(sid, bot, 3.65, None)
+                self.runner._time = simulation.REGEN_DELAY_S - 0.1
+                self.sim.update_player_integrity(60.0, self.runner.world)
+                self.assertAlmostEqual(capacity - 3.65, bot["integrity"])
+
+                self.runner._time = simulation.REGEN_DELAY_S
+                self.sim.update_player_integrity(219.0, self.runner.world)
+
+                self.assertAlmostEqual(capacity, bot["integrity"])
+                self.assertAlmostEqual(capacity, self.sim.players[sid]["integrity"])
+                self.assertAlmostEqual(6.35, bot["regen_budget"])
+                self.assertAlmostEqual(16.35, bot["regen_total_remaining"])
+
     def test_coastal_danger_damages_humans_and_bots_equally(self) -> None:
         self.runner.world["islands"] = [{"points": [
             {"x": -1.0, "z": -1.0}, {"x": 1.0, "z": -1.0},
